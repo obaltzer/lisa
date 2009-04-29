@@ -125,7 +125,7 @@ class ResultStack(MiniEngine):
     def __init__(self, *streams):
         MiniEngine.__init__(self)
         self._streams = streams
-        self._queue = Queue(10)
+        self._queue = Queue(1)
         self._endpoints = dict([(s.connect(), s) for s in self._streams])
         for e in self._endpoints:
             e.notify(self._queue)

@@ -45,6 +45,28 @@ class NameAgeCombiner(object):
             r[self._indices['age']]
         ), )
 
+class NameAgeCombinerReverse(object):
+    def __init__(self, input_schema):
+        self._schema = Schema()
+        self._schema.append(Attribute('name_age', str))
+        self._input_schema = input_schema
+        self._indices = {
+            'name': input_schema.index(Attribute('name', str)),
+            'age': input_schema.index(Attribute('age', int))
+        }
+
+    def schema(self):
+        return self._schema
+
+    def accepts(self, other_schema):
+        return self._input_schema == other_schema
+
+    def __call__(self, r):
+        return ('%d: %s' % (
+            r[self._indices['age']],
+            r[self._indices['name']]
+        ), )
+
 # schema definition of the query stream
 query_schema = Schema()
 query_schema.append(Attribute('age', IntInterval))
@@ -80,9 +102,14 @@ name_age_combiner = NameAgeCombiner(data_accessor.output().schema())
 
 select = Select(data_accessor.output(), name_age_combiner)
 
+name_age_combiner_reverse = NameAgeCombinerReverse(data_accessor.output().schema())
+
+select2 = Select(data_accessor.output(), name_age_combiner_reverse)
+
 result_stack = ResultStack(
     query_streamer.output(),
 #    select.output(), 
+#    select2.output(), 
 #    data_accessor.output(),
 )
 
@@ -110,6 +137,11 @@ t4 = Thread(
     name = 'Result Stack', 
     args = (result_stack,)
 )
+t5 = Thread(
+    target = manage, 
+    name = 'Select2', 
+    args = (select2,)
+)
 
 #t1.daemon = True
 #t2.daemon = True
@@ -120,6 +152,7 @@ t1.start()
 t2.start()
 t3.start()
 t4.start()
+t5.start()
 
 #time.sleep(1)
 

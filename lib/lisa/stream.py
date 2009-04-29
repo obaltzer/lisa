@@ -23,30 +23,36 @@ class Stream(object):
         def __init__(self):
             Queue.__init__(self, 1)
             self._queue = None
+            self._recv_buffer = []
+            self._send_buffer = []
             
         def receive(self, block = True):
-            o = self.get(block)
-            if type(o) is Stream.StreamEnd:
+            if not self._recv_buffer:
+                self._recv_buffer = self.get(block)
+                self._recv_buffer.reverse()
                 self.task_done()
+
+            o = self._recv_buffer.pop()
+            if type(o) is Stream.StreamEnd:
                 raise StreamClosedException
             else:
                 return o
 
         def processed(self):
-            self.task_done()
+            # self.task_done()
+            pass
 
         def close(self):
-            # print 'sending StreamEnd'
-            self.put(Stream.StreamEnd())
-            if self._queue:
-                # print 'put close into queue'
-                self._queue.put(self)
-                # print 'put close into queue...done'
+            self.send(Stream.StreamEnd(), True)
  
-        def send(self, o):
-            self.put(o)
-            if self._queue:
-                self._queue.put(self)
+        def send(self, o, flush = False):
+            self._send_buffer.append(o)
+
+            if len(self._send_buffer) >= 100 or flush:
+                self.put(self._send_buffer)
+                if self._queue:
+                    self._queue.put(self)
+                self._send_buffer = []
 
         def notify(self, queue):
             self._queue = queue
