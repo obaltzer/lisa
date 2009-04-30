@@ -87,3 +87,57 @@ class Stream(object):
             return '<Stream: \'%s\'>' % (self._name)
         else:
             return object.__repr__(self)
+
+class Demux(object):
+    class EndPoint(object):
+        '''
+        Representation of a stream's endpoint.
+        '''
+        def __init__(self, demux):
+            self._demux = demux
+            
+        def receive(self, block = True):
+            return self._demux._receive(block)
+
+        def processed(self):
+            pass
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._endpoints = list()
+        self._ep = self._stream.connect()
+        self._lock = Lock()
+        self._closed = False
+
+    def schema(self):
+        return self._stream.schema()
+
+    def sort_order(self):
+        return self._stream.sort_order()
+
+    def send(self):
+        raise Exception('send() is not implemented for a Demux stream.')
+
+    def close(self):
+        raise Exception('close() is not implemented for a Demux stream.')
+
+    def __repr__(self):
+        return '<Demux: %s >' % (self._stream)
+
+    def connect(self):
+        c = self.EndPoint(self)
+        self._endpoints.append(c)
+        return c
+
+    def _receive(self, block = True):
+        self._lock.acquire()
+        if self._closed:
+            self._lock.release()
+            raise StreamClosedException
+        try:
+            return self._ep.receive(block)
+        except StreamClosedException:
+            self._closed = True
+            raise
+        finally:
+            self._lock.release()

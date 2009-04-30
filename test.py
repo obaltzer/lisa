@@ -10,7 +10,10 @@ from lisa.data_source import CSVFile
 from lisa.access_methods import FindIdentities, FindRange
 from lisa.types import Interval
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
-                              Select
+                              Select, Mux
+
+from lisa.stream import Demux
+
 import signal, os
 
 def alarm_handler(signum, frame):
@@ -76,11 +79,11 @@ query_streamer = ArrayStreamer(query_schema, [
         (IntInterval(1, 3),),
         (IntInterval(2, 5),),
         (IntInterval(1, 3),),
-        (IntInterval(1, 3),),
-        (IntInterval(2, 5),),
-        (IntInterval(2, 5),),
-        (IntInterval(1, 3),),
-        (IntInterval(2, 5),),
+#        (IntInterval(1, 3),),
+#        (IntInterval(2, 5),),
+#        (IntInterval(2, 5),),
+#        (IntInterval(1, 3),),
+#        (IntInterval(2, 5),),
 ])
 
 # schema definition of the data stream
@@ -98,18 +101,26 @@ data_accessor = DataAccessor(
     FindRange
 )
 
-name_age_combiner = NameAgeCombiner(data_accessor.output().schema())
+demux = Demux(data_accessor.output())
+name_age_combiner = NameAgeCombiner(demux.schema())
 
-select = Select(data_accessor.output(), name_age_combiner)
+selects = []
+for s in range(0, 20):
+    selects.append(Select(demux, name_age_combiner))
 
-name_age_combiner_reverse = NameAgeCombinerReverse(data_accessor.output().schema())
+mux = Mux(*[s.output() for s in selects])
 
-select2 = Select(data_accessor.output(), name_age_combiner_reverse)
+#name_age_combiner_reverse = NameAgeCombinerReverse(demux.schema())
+#select2 = Select(demux, name_age_combiner_reverse)
+
+#name_age_combiner = NameAgeCombiner(data_accessor.output().schema())
+#select = Select(data_accessor.output(), name_age_combiner)
+#name_age_combiner_reverse = NameAgeCombinerReverse(data_accessor.output().schema())
+#select2 = Select(data_accessor.output(), name_age_combiner_reverse)
 
 result_stack = ResultStack(
-    query_streamer.output(),
-#    select.output(), 
-#    select2.output(), 
+#    query_streamer.output(),
+    mux.output(),
 #    data_accessor.output(),
 )
 
@@ -117,47 +128,27 @@ def manage(task):
     print 'Running: ' + str(task)
     task.run()
 
-t1 = Thread(
-    target = manage, 
-    name = 'Query Streamer', 
-    args = (query_streamer,)
-)
-t2 = Thread(
-    target = manage, 
-    name = 'Data Accessor', 
-    args = (data_accessor,)
-)
-t3 = Thread(
-    target = manage, 
-    name = 'Select', 
-    args = (select,)
-)
-t4 = Thread(
-    target = manage, 
-    name = 'Result Stack', 
-    args = (result_stack,)
-)
-t5 = Thread(
-    target = manage, 
-    name = 'Select2', 
-    args = (select2,)
-)
+tasks = []
 
-#t1.daemon = True
-#t2.daemon = True
-#t3.daemon = True
-#t4.daemon = True
+tasks += [('Select', s) for s in selects]
 
-t1.start()
-t2.start()
-t3.start()
-t4.start()
-t5.start()
+tasks += [
+    ('Query Streamer', query_streamer),
+    ('Data Accessor', data_accessor),
+    ('Result Stack', result_stack),
+    ('Mux', mux),
+]
 
-#time.sleep(1)
+threads = []
 
-#t4 = stackless.tasklet(manage)(query_streamer)
-#t2 = stackless.tasklet(manage)(data_accessor)
-#t3 = stackless.tasklet(manage)(select)
-#t1 = stackless.tasklet(manage)(result_stack)
-#stackless.run()
+for t in tasks:
+    threads.append(
+        Thread(
+            target = manage, 
+            name = t[0], 
+            args = (t[1],)
+        )
+    )
+
+for t in threads:
+    t.start()

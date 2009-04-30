@@ -148,7 +148,7 @@ class ResultStack(MiniEngine):
                 # print '\t\t%s: receiving' % (self._endpoints[e])
                 try:
                     r = e.receive(False)
-                    print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
+                    # print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
                     e.processed()
                 except StreamClosedException:
                     # print '\t\tReceive ClosedException.'
@@ -212,3 +212,71 @@ class Select(MiniEngine):
                 closed = True
         print 'Closing SELECT stream'
         self._output_stream.close()
+
+class Mux(MiniEngine):
+    def __init__(self, *streams):
+        MiniEngine.__init__(self)
+        if not streams:
+            raise Exception('Mux: must specify at least one stream.')
+        self._streams = streams
+        self._queue = Queue(1)
+        self._stats = {}
+        self._endpoints = dict([(s.connect(), s) for s in self._streams])
+        for e in self._endpoints:
+            self._stats[e] = 0
+            e.notify(self._queue)
+
+        for s in self._streams:
+            if s.schema() != self._streams[0].schema():
+                raise Exception('Mux: schema of streams must match.')
+
+        self._output = Stream(
+            self._streams[0].schema(),
+            SortOrder(),
+            'Mux Output'
+        )
+
+    def output(self):
+        return self._output
+
+    def run(self):
+        while self._endpoints or not self._queue.empty():
+            # print '\t\twaiting for endpoint'
+            e = self._queue.get()
+            
+            if e in self._endpoints:
+                # print 'got endpoint: %s' % (self._endpoints[e])
+                pass
+            else:
+                # print 'got non-existing endpoint'
+                continue
+
+            valid = True
+            closed = False
+            while valid and not closed:
+                # print '\t\t%s: receiving' % (self._endpoints[e])
+                try:
+                    r = e.receive(False)
+                    self._stats[e] += 1
+                    self._output.send(r)
+                    e.processed()
+                except StreamClosedException:
+                    # print '\t\tReceive ClosedException.'
+                    closed = True
+                except:
+                    valid = False
+                    # print '\t\tReceive failed.'
+            else:
+                if e in self._endpoints:
+                    # print '%s: closed? %s' % (self._endpoints[e], e.closed())
+                    if closed:
+                        # print '%s: closed? %s' % (self._endpoints[e], e.closed())
+                        del self._endpoints[e]
+                else:
+                    # print '%s: already removed' % (e)
+                    pass
+            self._queue.task_done()
+        print '\t\tAll streams done.'
+        self._output.close()
+        for e in self._stats:
+            print 'Received %d records from %s' % (self._stats[e], e)
