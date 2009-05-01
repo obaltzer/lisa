@@ -16,13 +16,6 @@ from lisa.stream import Demux
 
 import signal, os
 
-def alarm_handler(signum, frame):
-    system('kill -9 %d' , os.getpid())
-
-signal.signal(signal.SIGALRM, alarm_handler)
-signal.alarm(5)
-
-
 # some type definitions
 IntInterval = Interval(int)
 
@@ -79,12 +72,14 @@ query_streamer = ArrayStreamer(query_schema, [
         (IntInterval(1, 3),),
         (IntInterval(2, 5),),
         (IntInterval(1, 3),),
-#        (IntInterval(1, 3),),
-#        (IntInterval(2, 5),),
-#        (IntInterval(2, 5),),
-#        (IntInterval(1, 3),),
-#        (IntInterval(2, 5),),
+        (IntInterval(1, 3),),
+        (IntInterval(2, 5),),
+        (IntInterval(2, 5),),
+        (IntInterval(1, 3),),
+        (IntInterval(2, 5),),
 ])
+
+demux = Demux(query_streamer.output())
 
 # schema definition of the data stream
 data_schema = Schema()
@@ -94,19 +89,18 @@ data_schema.append(Attribute('age', int))
 # definition of the data source
 data_source = CSVFile('test3.csv', data_schema)
 
-# create a data accessor
-data_accessor = DataAccessor(
-    query_streamer.output(), 
-    data_source,
-    FindRange
-)
-
-demux = Demux(data_accessor.output())
-name_age_combiner = NameAgeCombiner(demux.schema())
-
+data_accessors = []
 selects = []
-for s in range(0, 20):
-    selects.append(Select(demux, name_age_combiner))
+for i in range(0, 1):
+    # create a data accessor
+    data_accessor = DataAccessor(
+        demux, 
+        data_source,
+        FindRange
+    )
+    name_age_combiner = NameAgeCombiner(data_accessor.output().schema())
+    selects.append(Select(data_accessor.output(), name_age_combiner))
+    data_accessors.append(data_accessor)
 
 mux = Mux(*[s.output() for s in selects])
 
@@ -131,10 +125,10 @@ def manage(task):
 tasks = []
 
 tasks += [('Select', s) for s in selects]
+tasks += [('Data Accessor', da) for da in data_accessors]
 
 tasks += [
     ('Query Streamer', query_streamer),
-    ('Data Accessor', data_accessor),
     ('Result Stack', result_stack),
     ('Mux', mux),
 ]
