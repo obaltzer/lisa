@@ -1,7 +1,8 @@
 class Attribute(object):
-    def __init__(self, name, type):
+    def __init__(self, name, type, key = False):
         self._name = name
         self._type = type
+        self._key = key
 
     def __eq__(self, other):
         if type(other) is self.__class__:
@@ -19,6 +20,9 @@ class Attribute(object):
 
     def name(self):
         return self._name
+
+    def key(self):
+        return self._key
 
 class Schema(list):
     def __init__(self, *args, **kwargs):
@@ -43,6 +47,8 @@ class Schema(list):
             return True
         elif isinstance(other, Attribute):
             return other in self._map
+        elif type(other) is str:
+            return other in [a.name() for a in self]
         else:
             return other in self
 
@@ -54,3 +60,6 @@ class Schema(list):
                 return list.index(self, attribute)
         else:
             list.index(self, attribute)
+
+    def keys(self):
+        return [a for a in self if a.key()]

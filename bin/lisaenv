@@ -1,0 +1,6 @@
+BASE=`dirname $BASH_SOURCE`/..
+
+. $BASE/bin/activate
+
+export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib
+

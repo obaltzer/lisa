@@ -6,15 +6,17 @@ from threading import Thread
 import time
 
 from lisa.schema import Schema, Attribute
-from lisa.data_source import CSVFile
+from lisa.data_source import CSVFile, DBTable, Rtree
 from lisa.access_methods import FindIdentities, FindRange
-from lisa.types import Interval
+from lisa.types import Interval, Geometry
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux
 
 from lisa.stream import Demux
 
 import signal, os
+
+import sqlite3
 
 # some type definitions
 IntInterval = Interval(int)
@@ -86,8 +88,22 @@ data_schema = Schema()
 data_schema.append(Attribute('name', str))
 data_schema.append(Attribute('age', int))
 
+data_schema.append(Attribute('rowid', int, True))
+data_source = DBTable('test.db', 'person', data_schema)
+print [x for x in data_source.contained({'rowid': (20, 30)})]
+
+rtree_source = Rtree('data/zip5', 'zip')
+from shapely import wkt
+print len([x for x in rtree_source.contained(
+        {
+            'zip': Geometry(wkt.loads(
+                'POLYGON((-86.8 40, -86.0 40, -86.0 35, -86.8 35, -86.8 40))'
+            ).wkb)
+        }
+    )])
+
 # definition of the data source
-data_source = CSVFile('test3.csv', data_schema)
+#data_source = CSVFile('test.csv', data_schema)
 
 data_accessors = []
 selects = []

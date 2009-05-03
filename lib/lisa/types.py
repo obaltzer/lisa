@@ -1,3 +1,5 @@
+from shapely import wkb
+
 class StopWord(object):
     pass
 
@@ -38,3 +40,16 @@ class Interval(object):
 
     def __eq__(self, other):
         return other == self._base
+
+class Geometry(object):
+    def __init__(self, wkb):
+        self._wkb = wkb
+        self._geom = None
+
+    def geom(self):
+        if not self._geom:
+            self._geom = wkb.loads(self._wkb)
+        return self._geom
+
+    def __repr__(self):
+        return self.geom().wkt
