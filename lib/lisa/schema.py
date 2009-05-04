@@ -28,9 +28,11 @@ class Schema(list):
     def __init__(self, *args, **kwargs):
         list.__init__(self, *args, **kwargs)
         self._map = dict()
+        self._name_map = dict()
 
     def append(self, attribute):
         self._map[attribute] = len(self)
+        self._name_map[attribute.name()] = len(self)
         list.append(self, attribute)
 
     def __contains__(self, other):
@@ -48,7 +50,7 @@ class Schema(list):
         elif isinstance(other, Attribute):
             return other in self._map
         elif type(other) is str:
-            return other in [a.name() for a in self]
+            return other in self._name_map
         else:
             return other in self
 
@@ -56,6 +58,11 @@ class Schema(list):
         if isinstance(attribute, Attribute):
             try:
                 return self._map[attribute]
+            except:
+                return list.index(self, attribute)
+        elif type(attribute) is str:
+            try:
+                return self._name_map[attribute]
             except:
                 return list.index(self, attribute)
         else:

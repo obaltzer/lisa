@@ -81,6 +81,8 @@ class DataAccessor(MiniEngine):
                 # print 'DA: Waiting to receive'
                 q = self._query_stream_ep.receive()
                 i += 1
+                if type(q) is StopWord:
+                    continue
                 if q:
                     # process the query and write result records into the output
                     # stream

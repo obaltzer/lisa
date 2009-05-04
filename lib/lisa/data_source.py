@@ -226,7 +226,6 @@ class Rtree(DataSource):
             yield self._get_by_oid(id)
 
     def intersect(self, ranges):
-        print 'Ranges: %s' % (ranges)
         if self._name in ranges and 'oid' not in ranges:
             if isinstance(ranges[self._name], Geometry):
                 return self._intersect_geom(ranges[self._name])
