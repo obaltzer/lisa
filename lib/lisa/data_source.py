@@ -17,6 +17,9 @@ class DataSource(object):
     def provides_iterator(self):
         return hasattr(self, '__iter__')
 
+    def provides_intersect(self):
+        return hasattr(self, 'intersect')
+
 class CSVFile(DataSource):
     def __init__(self, filename, schema):
         self._schema = schema
@@ -98,7 +101,7 @@ class DBTable(DataSource):
     def schema(self):
         return self._schema
 
-    def contained(self, ranges):
+    def intersect(self, ranges):
         self._setup()
 
         cursor = self._conn.cursor()
@@ -129,60 +132,117 @@ import struct
 
 class Rtree(DataSource):
     def __init__(self, filename, name):
+        # Name of the Rtree file
         self._filename = filename
+        # Name of the geometry attribute
         self._name = name
+
+        # Construct the schema for the R-tree data source. It consists of a
+        # unique OID which was generated during index creation and the
+        # geometry object with the specified attribute name.
         self._schema = Schema()
         self._schema.append(Attribute('oid', int, True))
         self._schema.append(Attribute(name, Geometry))
-        
+      
+        # Construct the file name of the data and data index file.
         self._data_filename = self._filename + '.data'
         self._index_filename = self._filename + '.data.idx'
-        self._tree = _Rtree(self._filename)
-
+        
+        # Open the data and data index files
         self._data_file = open(self._data_filename, 'r+')
         self._index_file = open(self._index_filename, 'r+')
 
+        # Determine the length of the data and the data index files.
         self._index_file.seek(0, os.SEEK_END)
         self._index_length = self._index_file.tell()
         self._index_file.seek(0)
-
         self._data_file.seek(0, os.SEEK_END)
         self._data_length = self._data_file.tell()
         self._data_file.seek(0)
 
+        # Compute size of a long int.
         self._long_size = struct.calcsize('L')
+        self._index_size = self._index_length / self._long_size
 
+        # Memory-map data and data index
         self._data = mmap.mmap(self._data_file.fileno(), 0)
         self._index = mmap.mmap(self._index_file.fileno(), 0)
+        
+        # Open the R-tree
+        self._tree = _Rtree(self._filename)
 
     def schema(self):
         return self._schema
 
+    def _get_by_oid(self, oid):
+        if oid < 0 or oid >= self._index_size:
+            raise KeyError('Object with ID [%d] does not exist.' % (oid))
+        # Compute address of object pointer.
+        a = oid * self._long_size
+        # Compute address of following object pointer.
+        b = a + 2 * self._long_size
+        # Unpack pointer to the address in the datafile.
+        if b > self._index_length:
+            # If the object pointer is the last one and thus there is
+            # no following record, the length of the object is
+            # restricted to the data file's size.
+            first, = struct.unpack(
+                'L', 
+                self._index[a:self._index_length]
+            )
+            second = self._data_length
+        else:
+            # Otherwise simply compute the object's size from the
+            # difference between its address and the address of the
+            # following object.
+            first, second = struct.unpack('LL', self._index[a:b])
+        return (oid, Geometry(self._data[first:second]))
+
     def __getitem__(self, key):
-        # Should just return the key-th object from index and data file.
-        pass
-
+        return self._get_by_oid(key['oid'])
+        
     def __iter__(self):
-        # Iterate over all keys in the index and return objects from data
-        # file.
-        pass
+        return self._intersect_oid((0, self._index_size))
 
-    def contained(self, ranges):
-        # Handle ranges over OIDs separate from ranges over geometries.
-        query = ranges[self._name].geom().bounds
-        for id in self._tree.intersection(query):
-            a = id * self._long_size
-            b = a + 2 * self._long_size
-            if b > self._index_length:
-                first, = struct.unpack(
-                    'L', 
-                    self._index[a:self._index_length]
-                )
-                second = self._data_length
+    def _intersect_geom(self, geom):
+        '''
+        Returns records for which their geometry portion intersects with
+        the given geometry.
+        '''
+        query = geom.geom().bounds
+        for id, g in self._intersect_box(query):
+            if g.geom().intersects(geom.geom()):
+                yield (id, g)
+
+    def _intersect_box(self, box):
+        for id in self._tree.intersection(box):
+            yield self._get_by_oid(id)
+
+    def _intersect_oid(self, r):
+        # Trim the range to the size of the file.
+        low = r[0] >= 0 and r[0] or 0
+        high = r[1] <= self._index_size and r[1] or self._index_size
+        for id in range(low, high):
+            yield self._get_by_oid(id)
+
+    def intersect(self, ranges):
+        print 'Ranges: %s' % (ranges)
+        if self._name in ranges and 'oid' not in ranges:
+            if isinstance(ranges[self._name], Geometry):
+                return self._intersect_geom(ranges[self._name])
+            elif type(ranges[self._name]) is tuple:
+                return self._intersect_box(ranges[self._name])
             else:
-                first, second = struct.unpack('LL', self._index[a:b])
-            yield (id, Geometry(self._data[first:second]))
-
+                raise Exception('Invalid argument to intersect() method.')
+        elif 'oid' in ranges and self._name not in ranges:
+            r = ranges['oid']
+            if isinstance(r, tuple):
+                return self._intersect_oid(r)
+            else:
+                raise Exception('Invalid argument to intersect() method.')
+        else:
+            raise Exception('Invalid argument to intersect() method.')
+            
     def __del__(self):
         self._data.close()
         self._index.close()

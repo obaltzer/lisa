@@ -17,6 +17,7 @@ from lisa.stream import Demux
 import signal, os
 
 import sqlite3
+from shapely import wkt
 
 # some type definitions
 IntInterval = Interval(int)
@@ -90,14 +91,34 @@ data_schema.append(Attribute('age', int))
 
 data_schema.append(Attribute('rowid', int, True))
 data_source = DBTable('test.db', 'person', data_schema)
-print [x for x in data_source.contained({'rowid': (20, 30)})]
+print [x for x in data_source.intersect({'rowid': (20, 30)})]
 
 rtree_source = Rtree('data/zip5', 'zip')
-from shapely import wkt
-print len([x for x in rtree_source.contained(
+find_identities = FindIdentities(rtree_source)
+find_range = FindRange(rtree_source)
+querys = Schema()
+querys.append(Attribute('oid', int))
+print find_identities.query(querys, (10000,))
+
+querys = Schema()
+querys.append(Attribute('oid', IntInterval))
+print [x for x in find_range.query(querys, (IntInterval(1, 3),))]
+
+querys = Schema()
+querys.append(Attribute('zip', Geometry))
+print len([x for x in find_range.query(querys, (
+    Geometry(wkt.loads(
+        'POLYGON((-86.2 40, -86.0 40, -86.0 39.9, -86.2 39.9, -86.2 40))'
+    ).wkb)
+,))])
+
+# print rtree_source[999999]
+
+print len([x for x in rtree_source.intersect(
         {
+#            'oid': (12345, 12360)
             'zip': Geometry(wkt.loads(
-                'POLYGON((-86.8 40, -86.0 40, -86.0 35, -86.8 35, -86.8 40))'
+                'POLYGON((-86.2 40, -86.0 40, -86.0 39.9, -86.2 39.9, -86.2 40))'
             ).wkb)
         }
     )])

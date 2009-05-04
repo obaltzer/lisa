@@ -23,13 +23,22 @@ class AccessMethod(object):
         yield None
 
 class FindIdentities(AccessMethod):
+    def __init__(self, data_source):
+        AccessMethod.__init__(self, data_source)
+       
+        if data_source.provides_random_access():
+            self.query = self._query_random_access
+        else:
+            self.query = self._query_iterator
+        
     def accepts(self, schema):
         for a in schema:
             if a not in self._data_source.schema():
                 return False
         return True
 
-    def query(self, schema, q):
+    def _query_iterator(self, schema, q):
+        print 'query_iterator: %s' % (q)
         indices = []
         i = 0
         for a in schema:
@@ -42,11 +51,32 @@ class FindIdentities(AccessMethod):
             if match:
                 yield r
 
+    def _query_random_access(self, schema, q):
+        print 'query_random_access: %s' % (q)
+        query = {}
+        for i, a in enumerate(schema):
+            if a in self._data_source.schema().keys():
+                query[a.name()] = q[i]
+        return self._data_source[query]
+
 class FindRange(AccessMethod):
+    def __init__(self, data_source):
+        AccessMethod.__init__(self, data_source)
+        if data_source.provides_intersect():
+            self.query = self._query_intersect
+        # Cannot use random access since the given range may not be
+        # discretizable
+        #elif data_source.provides_random_access():
+        #    self.query = self._query_random_access
+        elif data_source.provides_iterator():
+            self.query = self._query_iterator
+        else:
+            raise Exception('Access Method not supported by data source.')
+    
     def accepts(self, schema):
         found = False
         for a in schema:
-            if not isinstance(a.type(), Interval):
+            if not hasattr(a.type(), 'contains'):
                 return False
             else:
                 for b in self._data_source.schema():
@@ -54,15 +84,26 @@ class FindRange(AccessMethod):
                        found |= True 
         return found
 
-    def query(self, schema, q):
+    def _query_iterator(self, schema, q):
         indices = []
-        i = 0
-        for a in schema:
+        for i, a in enumerate(schema):
             indices.append((i, self._data_source.schema().index(a)))
-            i += 1
         for r in self._data_source:
             match = True
             for a, b in indices:
-                match &= q[a].low() <= r[b] < q[a].high()
+                match &= q[a].contains(r[b])
+            if match:
+                yield r
+
+    def _query_intersect(self, schema, q):
+        ranges = {}
+        indices = []
+        for i, a in enumerate(schema):
+            ranges[a.name()] = q[i]
+            indices.append((i, self._data_source.schema().index(a)))
+        for r in self._data_source.intersect(ranges):
+            match = True
+            for a, b in indices:
+                match &= q[a].contains(r[b])
             if match:
                 yield r
