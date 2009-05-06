@@ -282,3 +282,134 @@ class Mux(MiniEngine):
         self._output.close()
         for e in self._stats:
             print 'Received %d records from %s' % (self._stats[e], e)
+
+class Group(MiniEngine):
+    def __init__(self, input_stream, group_attributes):
+        MiniEngine.__init__(self)
+        self._input_stream = input_stream
+        self._input_ep = input_stream.connect()
+        self._schema = self._input_stream.schema()
+        self._indices = {}
+        for a in group_attributes:
+            i = self._schema.index(a)
+            t = self._schema[i].type()
+            if group_attributes[a]:
+                self._indices[i] = group_attributes[a]
+            elif hasattr(t, '__eq__'):
+                self._indices[i] = None
+            else:
+                raise Exception('Type of attribute [%s] does not have ' + \
+                                'an equality operator.' % (a))
+
+        self._output_stream = Stream(
+            self._schema,
+            self._input_stream.sort_order(), 
+            'GROUP'
+        )
+
+    def output(self):
+        return self._output_stream
+
+    def _compare(self, a, b):
+        for i in self._indices:
+            if self._indices[i]:
+                if not self._indices[i](a[i], b[i]):
+                    return False
+            else:
+                if a[i] != b[i]:
+                    return False
+        return True
+
+    def run(self):
+        closed = False
+        last = None
+        while not closed:
+            try:
+                r = self._input_ep.receive()
+                if type(r) is StopWord:
+#                    print 'Sending: %s' % (str(StopWord()))
+                    self._output_stream.send(StopWord())
+#                    print 'Sending: %s' % (str(r))
+                    self._output_stream.send(r)
+                else:
+                    if last == None or self._compare(last, r):
+#                        print 'Sending: %s' % (str(r))
+                        self._output_stream.send(r)
+                    else:
+#                        print 'Sending: %s' % (str(StopWord()))
+                        self._output_stream.send(StopWord())
+#                        print 'Sending: %s' % (str(r))
+                        self._output_stream.send(r)
+                    last = r
+                self._input_ep.processed()
+            except StreamClosedException:
+                closed = True
+        print 'Closing GROUP stream'
+        self._output_stream.close()
+
+class Sort(MiniEngine):
+    def __init__(self, input_stream, sort_attributes, all = False):
+        MiniEngine.__init__(self)
+        self._input_stream = input_stream
+        self._input_ep = input_stream.connect()
+        self._schema = self._input_stream.schema()
+        self._all = all
+        self._indices = {}
+        for a in sort_attributes:
+            i = self._schema.index(a)
+            t = self._schema[i].type()
+            if sort_attributes[a]:
+                self._indices[i] = sort_attributes[a]
+            elif hasattr(t, '__cmp__'):
+                self._indices[i] = None
+            else:
+                raise Exception('Type of attribute [%s] does not have ' + \
+                                'a comparison operator.' % (a))
+
+        self._output_stream = Stream(
+            self._schema,
+            SortOrder(), 
+            'SORT'
+        )
+
+    def output(self):
+        return self._output_stream
+
+    def _compare(self, a, b):
+        for i in self._indices:
+            if self._indices[i]:
+                x = self._indices[i](a[i], b[i])
+                if x:
+                    return x
+            else:
+                x = cmp(a[i], b[i])
+                if x:
+                    return x
+        return 0
+
+    def run(self):
+        closed = False
+        last = None
+        set = []
+        while not closed:
+            try:
+                r = self._input_ep.receive()
+                if type(r) is StopWord:
+                    if not self._all:
+                        set.sort(self._compare)
+                        for x in set:
+                            self._output_stream.send(x)
+                        set = []
+                        self._output_stream.send(r)
+                else:
+                    set.append(r)
+                self._input_ep.processed()
+            except StreamClosedException:
+                closed = True
+        if self._all:
+            set.sort(self._compare)
+            for x in set:
+                self._output_stream.send(x)
+            self._output_stream.send(StopWord())
+        print 'Closing SORT stream'
+        self._output_stream.close()

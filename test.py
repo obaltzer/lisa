@@ -2,7 +2,8 @@ import sys
 
 sys.path.insert(0, 'lib')
 
-from threading import Thread
+from threading import Thread, current_thread
+from Queue import Queue
 import time
 
 from lisa.schema import Schema, Attribute
@@ -10,7 +11,8 @@ from lisa.data_source import CSVFile, DBTable, Rtree
 from lisa.access_methods import FindIdentities, FindRange
 from lisa.types import Interval, Geometry
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
-                              Select, Mux
+                              Select, Mux, Group, Sort
+from lisa.info import ThreadInfo
 
 from lisa.stream import Demux
 
@@ -130,9 +132,12 @@ result_stack = ResultStack(
 #    data_accessor.output(),
 )
 
+info_queue = Queue()
+
 def manage(task):
     print 'Running: ' + str(task)
     task.run()
+    info_queue.put(ThreadInfo())
 
 tasks = []
 
@@ -161,6 +166,11 @@ for t in threads:
 
 for t in threads:
     t.join()
+
+while not info_queue.empty():
+    i = info_queue.get()
+    print i
+    info_queue.task_done()
 
 #############################################################
 #
@@ -196,12 +206,13 @@ query_schema.append(Attribute('oid', IntInterval))
 
 # query stream generator from array
 query_streamer = ArrayStreamer(query_schema, [
+        (IntInterval(13, 65),),
         (IntInterval(2, 5),),
         (IntInterval(13, 65),),
         (IntInterval(1, 3),),
         (IntInterval(1, 20),),
         (IntInterval(2, 5),),
-        (IntInterval(20, 50),),
+        (IntInterval(20, 5000),),
         (IntInterval(1, 3),),
         (IntInterval(2, 5),),
         (IntInterval(2, 5),),
@@ -214,7 +225,6 @@ query_streamer = ArrayStreamer(query_schema, [
         (IntInterval(2, 5),),
 ])
 
-demux = Demux(query_streamer.output())
 
 county_source = Rtree('data/counties', 'county')
 zip_source = Rtree('data/zip5', 'zip')
@@ -222,29 +232,48 @@ zip_source = Rtree('data/zip5', 'zip')
 data_accessors = []
 county_selects = []
 zip_selects = []
+groups = []
+sorts = []
 
+# create a data accessor
+county_accessor = DataAccessor(
+    query_streamer.output(), 
+    county_source,
+    FindRange
+)
+data_accessors.append(county_accessor)
 
-for i in range(0, 5):
-    # create a data accessor
-    county_accessor = DataAccessor(
-        demux, 
-        county_source,
-        FindRange
-    )
-    sub_schema = SubSchema(county_accessor.output().schema(), {'county': 'zip'})
-    select = Select(county_accessor.output(), sub_schema)
+demux = Demux(county_accessor.output())
+
+sub_schema = SubSchema(demux.schema(), {'county': 'zip'})
+ 
+for i in range(0, 2):
+    select = Select(demux, sub_schema)
     county_selects.append(select)
-    data_accessors.append(county_accessor)
     zip_accessor = DataAccessor(
         select.output(),
         zip_source,
         FindRange
     )
-    sub_schema = SubSchema(zip_accessor.output().schema(), {'oid': 'zip'})
-    zip_selects.append(Select(zip_accessor.output(), sub_schema))
+    sub_schema2 = SubSchema(zip_accessor.output().schema(), {'oid': 'zip'})
+    zip_select = Select(zip_accessor.output(), sub_schema2)
+    zip_selects.append(zip_select)
+    sort = Sort(
+        zip_select.output(), 
+        {'zip': lambda a, b: cmp(a / 100, b / 100)},
+        # {'zip': None },
+        # True
+    )
+    sorts.append(sort)
+    group = Group(
+        sort.output(), 
+        {'zip': lambda a, b: (a / 1000) == (b / 1000)}
+        # {'zip': None }
+    )
+    groups.append(group)
     data_accessors.append(zip_accessor)
 
-mux = Mux(*[s.output() for s in zip_selects])
+mux = Mux(*[s.output() for s in groups])
 
 result_stack = ResultStack(
 #    query_streamer.output(),
@@ -254,8 +283,17 @@ result_stack = ResultStack(
 
 tasks = []
 
-tasks += [('Select', s) for s in county_selects + zip_selects]
-tasks += [('Data Accessor', da) for da in data_accessors]
+tasks += [
+    ('Select %02d' % (i), s) 
+        for i, s in enumerate(county_selects + zip_selects)
+]
+tasks += [
+    ('Data Accessor %02d' % (i), da) 
+        for i, da in enumerate(data_accessors)
+]
+
+tasks += [ ('Group', o) for o in groups ]
+tasks += [ ('Sort', o) for o in sorts ]
 
 tasks += [
     ('Query Streamer', query_streamer),
@@ -281,6 +319,11 @@ for t in threads:
 
 for t in threads:
     t.join()
+
+while not info_queue.empty():
+    i = info_queue.get()
+    print i
+    info_queue.task_done()
 
 #find_identities = FindIdentities(rtree_source)
 #find_range = FindRange(rtree_source)
