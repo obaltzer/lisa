@@ -4,7 +4,8 @@ from threading import Event
 
 from types import StopWord
 from stream import Stream, SortOrder, StreamClosedException
-from Queue import Queue
+from Queue import Queue, Empty
+from schema import Schema
 
 class MiniEngine(object):
     def __init__(self):
@@ -344,6 +345,7 @@ class Group(MiniEngine):
                 self._input_ep.processed()
             except StreamClosedException:
                 closed = True
+        self._output_stream.send(StopWord())
         print 'Closing GROUP stream'
         self._output_stream.close()
 
@@ -413,3 +415,138 @@ class Sort(MiniEngine):
             self._output_stream.send(StopWord())
         print 'Closing SORT stream'
         self._output_stream.close()
+
+class Join(MiniEngine):
+    '''
+    The Join mini-engine combines the records of two streams in such a way
+    that the result is the Cartesian product between two corresponding
+    record partitions, one from each stream.
+    '''
+    class PartitionBuffer(object):
+        '''
+        This class represents a partition buffer for a given endpoint. Each
+        partition received from the endpoint is stored in a separate
+        buffer.
+        '''
+        def __init__(self):
+            self._b = []
+
+        def append(self, r):
+            if len(self._b) == 0:
+                self._b.append([])
+
+            self._b[-1].append(r)
+
+        def current(self):
+            return len(self._b) - 1
+
+        def next(self):
+            self._b.append([])
+
+        def get(self, i):
+            assert i >= 0 and i < len(self._b)
+            return self._b[i]
+
+        def finished(self, i):
+            return i < len(self._b) - 1
+
+        def remove(self, i):
+            assert i >= 0 and i < len(self._b)
+            t = self._b[i]
+            self._b[i] = None
+            del t
+
+    def __init__(self, first, second):
+        MiniEngine.__init__(self)
+
+        self._first = first
+        self._second = second
+
+        # Construct the schema of the output stream.
+        self._schema = Schema()
+        for a in self._first.schema() + self._second.schema():
+            self._schema.append(a)
+
+        self._queue = Queue(1)
+        
+        self._first_ep = self._first.connect()
+        self._first_ep.notify(self._queue)
+
+        self._second_ep = self._second.connect()
+        self._second_ep.notify(self._queue)
+
+        self._output = Stream(
+            self._schema,
+            SortOrder(),
+            'Join'
+        )
+
+        self._m = {
+            self._first_ep: self._first,
+            self._second_ep: self._second,
+        }
+
+    def output(self):
+        return self._output
+
+    def _merge(self, buffers, i):
+        assert buffers[self._first_ep].finished(i)
+        assert buffers[self._second_ep].finished(i)
+
+        b1 = buffers[self._first_ep].get(i)
+        b2 = buffers[self._second_ep].get(i)
+
+        for r1 in b1:
+            for r2 in b2:
+                yield r1 + r2
+
+        buffers[self._first_ep].remove(i)
+        buffers[self._second_ep].remove(i)
+        
+    def run(self):
+        done = False
+        buffers = {
+            self._first_ep: self.PartitionBuffer(),
+            self._second_ep: self.PartitionBuffer(),
+        }
+        while not done or not self._queue.empty():
+            e = self._queue.get()
+            
+            if e not in buffers:
+                print 'ERROR: no buffer for endpoint'
+                continue
+
+            valid = True
+            closed = False
+            while valid and not closed:
+                try:
+                    r = e.receive(False)
+                    if type(r) is not StopWord:
+                        buffers[e].append(r)
+                    else:
+                        current = buffers[e].current()
+                        buffers[e].next()
+                        # Only merge if all buffers have completed this
+                        # partition.
+                        merge = True
+                        for o in buffers:
+                            merge &= buffers[o].finished(current)
+                        if merge:
+                            for x in self._merge(buffers, current):
+                                self._output.send(x)
+                            self._output.send(StopWord())
+
+                        # Advance this buffer's partition by 1
+                    e.processed()
+                except StreamClosedException:
+                    closed = True
+                except Empty:
+                    valid = False
+                except:
+                    raise
+            else:
+                done = True
+                for o in buffers:
+                    done &= o.closed()
+            self._queue.task_done()
+        self._output.close()

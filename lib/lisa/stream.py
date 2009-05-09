@@ -25,6 +25,7 @@ class Stream(object):
             self._queue = None
             self._recv_buffer = []
             self._send_buffer = []
+            self._closed = False
             
         def receive(self, block = True):
             if not self._recv_buffer:
@@ -34,6 +35,7 @@ class Stream(object):
 
             o = self._recv_buffer.pop()
             if type(o) is Stream.StreamEnd:
+                self._closed = True
                 raise StreamClosedException
             else:
                 return o
@@ -44,6 +46,9 @@ class Stream(object):
 
         def close(self):
             self.send(Stream.StreamEnd(), True)
+
+        def closed(self):
+            return self._closed
  
         def send(self, o, flush = False):
             self._send_buffer.append(o)
