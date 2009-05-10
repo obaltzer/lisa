@@ -151,7 +151,7 @@ class ResultStack(MiniEngine):
                 # print '\t\t%s: receiving' % (self._endpoints[e])
                 try:
                     r = e.receive(False)
-                    # print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
+                    print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
                     e.processed()
                 except StreamClosedException:
                     # print '\t\tReceive ClosedException.'
@@ -550,3 +550,83 @@ class Join(MiniEngine):
                     done &= o.closed()
             self._queue.task_done()
         self._output.close()
+
+class Filter(MiniEngine):
+    def __init__(self, input, predicate):
+        MiniEngine.__init__(self)
+        self._input = input
+        self._predicate = predicate
+
+        assert self._predicate.accepts(self._input.schema())
+
+        self._input_ep = self._input.connect()
+
+        self._output = Stream(
+            self._input.schema(),
+            self._input.sort_order(),
+            'Filter'
+        )
+
+    def output(self):
+        return self._output
+
+    def run(self):
+        closed = False
+        while not closed:
+            try:
+                r = self._input_ep.receive()
+                
+                if type(r) is StopWord:
+                    # Send if the record is a stop word
+                    self._output.send(r)
+                elif self._predicate(r):
+                    # Send if the record satisfies the predicate.
+                    self._output.send(r)
+                self._input_ep.processed()
+            except StreamClosedException:
+                closed = True
+        print 'Closing FILTER stream'
+        self._output.close()
+
+class Aggregate(MiniEngine):
+    def __init__(self, input, aggregator):
+        MiniEngine.__init__(self)
+        self._input = input
+        self._input_ep = self._input.connect()
+        self._a = aggregator
+        assert self._a.accepts(self._input.schema())
+
+        self._output = Stream(
+            self._input.schema(),
+            self._input.sort_order(),
+            'Aggregate'
+        )
+
+    def output(self):
+        return self._output
+
+    def run(self):
+        closed = False
+
+        # Initialize aggregate
+        self._a.init()
+        while not closed:
+            try:
+                r = self._input_ep.receive()
+                if type(r) is StopWord:
+                    # If the record is a stop word send the current
+                    # aggregate value.
+                    self._output.send(self._a.record())
+                    # Additionally send the stop word
+                    self._output.send(r)
+                    # Reset the aggregate value
+                    self._a.init()
+                else:
+                    # Add the current record to the aggregate
+                    self._a(r)
+                self._input_ep.processed()
+            except StreamClosedException:
+                closed = True
+        print 'Closing AGGREGATE stream'
+        self._output.close()
+
