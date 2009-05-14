@@ -151,7 +151,8 @@ class ResultStack(MiniEngine):
                 # print '\t\t%s: receiving' % (self._endpoints[e])
                 try:
                     r = e.receive(False)
-                    print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
+                    if type(r) is not StopWord:
+                        print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
                     e.processed()
                 except StreamClosedException:
                     # print '\t\tReceive ClosedException.'
@@ -290,6 +291,7 @@ class Group(MiniEngine):
         self._input_stream = input_stream
         self._input_ep = input_stream.connect()
         self._schema = self._input_stream.schema()
+        print self._schema
         self._indices = {}
         for a in group_attributes:
             i = self._schema.index(a)
@@ -496,8 +498,8 @@ class Join(MiniEngine):
         b1 = buffers[self._first_ep].get(i)
         b2 = buffers[self._second_ep].get(i)
 
-        for r1 in b1:
-            for r2 in b2:
+        for r1 in b1[:-1]:
+            for r2 in b2[:-1]:
                 yield r1 + r2
 
         buffers[self._first_ep].remove(i)
@@ -521,9 +523,8 @@ class Join(MiniEngine):
             while valid and not closed:
                 try:
                     r = e.receive(False)
-                    if type(r) is not StopWord:
-                        buffers[e].append(r)
-                    else:
+                    buffers[e].append(r)
+                    if type(r) is StopWord:
                         current = buffers[e].current()
                         buffers[e].next()
                         # Only merge if all buffers have completed this
@@ -615,8 +616,9 @@ class Aggregate(MiniEngine):
                 r = self._input_ep.receive()
                 if type(r) is StopWord:
                     # If the record is a stop word send the current
-                    # aggregate value.
-                    self._output.send(self._a.record())
+                    # aggregate value if anything was aggregated.
+                    if self._a.count():
+                        self._output.send(self._a.record())
                     # Additionally send the stop word
                     self._output.send(r)
                     # Reset the aggregate value

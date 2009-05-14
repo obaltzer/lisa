@@ -32,6 +32,8 @@ class FindIdentities(AccessMethod):
             self.query = self._query_iterator
         
     def accepts(self, schema):
+        print 'Other: %s' % (schema)
+        print 'Self: %s' % (self._data_source.schema())
         for a in schema:
             if a not in self._data_source.schema():
                 return False
@@ -52,7 +54,7 @@ class FindIdentities(AccessMethod):
                 yield r
 
     def _query_random_access(self, schema, q):
-        print 'query_random_access: %s' % (q)
+        # print 'query_random_access: %s' % (q)
         query = {}
         for i, a in enumerate(schema):
             if a in self._data_source.schema().keys():

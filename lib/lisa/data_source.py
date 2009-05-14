@@ -55,10 +55,16 @@ class DBTable(DataSource):
     def _verify_schema(self):
         cursor = self._conn.cursor()
         try:
-            cursor.execute('SELECT * FROM %s LIMIT 0' % (self._table))
-            for a in cursor.description:
-                if a[0] not in self._schema:
-                    raise Exception('Schema not compatible.')
+            anames = ', '.join([a.name() for a in self._schema])
+            sql = 'SELECT %s FROM %s LIMIT 0' % (anames, self._table)
+            print sql
+            cursor.execute('SELECT %s FROM %s LIMIT 0' % (anames, self._table))
+            #print cursor.description
+            #for a in cursor.description:
+            #    if a[0] not in self._schema:
+            #        raise Exception('Schema not compatible.')
+        except:
+            raise Exception('Schema not compatible.')
         finally:
             cursor.close()
 
@@ -92,11 +98,14 @@ class DBTable(DataSource):
             '%s = ?' % (a.name()) for a in self._schema.keys()
         ])
         values = tuple(key[a.name()] for a in self._schema.keys())
+        #keys = ' AND '.join([
+        #    '%s = \'%s\'' % (a.name(), v) for a, v in zip(self._schema.keys(), values)
+        #])
         cursor.execute(
-            'SELECT %s FROM %s WHERE %s' % (names, self._table, keys),
+            'SELECT %s FROM %s WHERE %s;' % (names, self._table, keys),
             values
         )
-        return cursor.fetchone()
+        return cursor.fetchall()
 
     def schema(self):
         return self._schema

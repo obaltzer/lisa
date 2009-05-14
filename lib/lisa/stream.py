@@ -98,18 +98,58 @@ class Demux(object):
         '''
         Representation of a stream's endpoint.
         '''
-        def __init__(self, demux):
-            self._demux = demux
+        def __init__(self, channel):
+            self._channel = channel
+            self._queue = Queue()
             
         def receive(self, block = True):
-            return self._demux._receive(block)
+            if self._queue.empty():
+                self._channel._update()
+            return self._queue.get()
 
         def processed(self):
-            pass
+            self._queue.task_done()
+
+        def send(self, r):
+            self._queue.put(r)
+    
+    class Channel(object):
+        def __init__(self, demux):
+            self._demux = demux
+            self._ep = []
+            self._lock = Lock()
+            self._closed = False
+
+        def schema(self):
+            return self._demux.schema()
+
+        def sort_order(self):
+            return self._demux.sort_order()
+
+        def connect(self):
+            c = Demux.EndPoint(self)
+            self._ep.append(c)
+            return c
+        
+        def _update(self):
+            self._lock.acquire()
+            if self._closed:
+                self._lock.release()
+                raise StreamClosedException
+            try:
+                r = self._demux._receive()
+                for e in self._ep:
+                    e.send(r)
+            except StreamClosedException:
+                self._closed = True
+                raise
+            finally:
+                self._lock.release()
+
 
     def __init__(self, stream):
         self._stream = stream
-        self._endpoints = list()
+        self._channels = []
         self._ep = self._stream.connect()
         self._lock = Lock()
         self._closed = False
@@ -129,9 +169,9 @@ class Demux(object):
     def __repr__(self):
         return '<Demux: %s >' % (self._stream)
 
-    def connect(self):
-        c = self.EndPoint(self)
-        self._endpoints.append(c)
+    def channel(self):
+        c = self.Channel(self)
+        self._channels.append(c)
         return c
 
     def _receive(self, block = True):

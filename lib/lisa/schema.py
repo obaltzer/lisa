@@ -48,7 +48,8 @@ class Schema(list):
                     return False
             return True
         elif isinstance(other, Attribute):
-            return other in self._map
+            return other._name in self._name_map and \
+                self[self._name_map[other._name]].type() is other.type()
         elif type(other) is str:
             return other in self._name_map
         else:
