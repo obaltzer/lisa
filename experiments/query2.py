@@ -21,23 +21,27 @@ input_file = sys.argv[1]
 
 #############################################################
 #
-# Query 1
-#
-# SELECT species.id, MAX(plants.height) FROM species 
-# LEFT JOIN plants ON  plants.species_id = species.id 
-# WHERE plants.age >= 10 AND plants.age <= 50 
-# GROUP BY species.id;
+# TEST 1
 #
 #############################################################
 
-# Schema definition of the query stream: an interval across all species
-# IDs.
+# Schema definition of the query stream: an interval across all families.
 query_schema = Schema()
-query_schema.append(Attribute('species.id', IntInterval))
+query_schema.append(Attribute('family.id', IntInterval))
 
-# Schema definition of the species record stream.
+# Schema definition of the family record stream.
+family_schema = Schema()
+family_schema.append(Attribute('family.id', int))
+
+# Schema definitions of the genus record stream.
+genus_schema = Schema()
+genus_schema.append(Attribute('genus.id', int))
+genus_schema.append(Attribute('genus.family_id', int, True))
+
+# Schema definitions of the species record stream.
 species_schema = Schema()
 species_schema.append(Attribute('species.id', int))
+species_schema.append(Attribute('species.genus_id', int, True))
 
 # Schema definition of the plant record stream.
 plants_schema = Schema()
@@ -113,32 +117,128 @@ class MaxHeightAggregator(object):
         for i, c in enumerate(self._c):
             self._c[i] = self._af[i][1](c, r[i])
 
+engines = []
+
 # The query stream contains only a single query.
 query_streamer = ArrayStreamer(query_schema, [
         (IntInterval(0, int(1E10)),),
 ])
+engines.append(query_streamer)
 
-# Create a species data source: a  table in the input database.
-species_source = DBTable(input_file, 'species', species_schema)
+# Create a family data source: a table in the input database.
+family_source = DBTable(input_file, 'family', family_schema)
 # Data accessor for the species data source.
-species_accessor = DataAccessor(
+family_accessor = DataAccessor(
     query_streamer.output(), 
-    species_source,
+    family_source,
     FindRange
 )
+engines.append(family_accessor)
 
-demux = Demux(species_accessor.output())
+# A group mini-engine to split the family IDs into groups.
+family_id_grouper = Group(
+    family_accessor.output(), 
+    {'family.id': lambda a, b: a == b}
+)
+engines.append(family_id_grouper)
 
-engines = []
+# Select only the family ID for querying genera.
+family_id_select = Select(
+    family_accessor.output(),
+    UniversalSelect(
+        family_accessor.output().schema(),
+        {
+            'genus.family_id': {
+                'type': int,
+                'args': ['family.id'],
+                'function': lambda v: v
+            }
+        }
+    )
+)
+engines.append(family_id_select)
+
+
+# Data source for the genera.
+genus_source = DBTable(input_file, 'genus', genus_schema)
+
+
+# Data accessor for the genera data source.
+genus_accessor = DataAccessor(
+    family_id_select.output(), 
+    genus_source,
+    FindIdentities
+)
+engines.append(genus_accessor)
+
+
+# A join mini-engine to associate families with genera.
+family_genus_joiner = Join(
+    family_id_grouper.output(), 
+    genus_accessor.output(),
+)
+engines.append(family_genus_joiner)
+
+
+# A group mini-engine to split the (family, genus) IDs into groups.
+family_genus_id_grouper = Group(
+    family_genus_joiner.output(), 
+    {
+        'family.id': lambda a, b: a == b,
+        'genus.id': lambda a, b: a == b
+    },
+)
+engines.append(family_genus_id_grouper)
+
+
+# Select only the genus ID for querying species.
+genus_id_select = Select(
+    family_genus_joiner.output(),
+    UniversalSelect(
+        family_genus_joiner.output().schema(),
+        {
+            'species.genus_id': {
+                'type': int,
+                'args': ['genus.id'],
+                'function': lambda v: v
+            }
+        }
+    )
+)
+engines.append(genus_id_select)
+
+
+# Data source for the species.
+species_source = DBTable(input_file, 'species', species_schema)
+
+
+# Data accessor for the species data source.
+species_accessor = DataAccessor(
+    genus_id_select.output(), 
+    species_source,
+    FindIdentities
+)
+engines.append(species_accessor)
+
+
+# A join mini-engine to associate families, genera and species.
+family_genus_species_joiner = Join(
+    family_genus_id_grouper.output(), 
+    species_accessor.output(),
+)
+engines.append(family_genus_species_joiner)
+
+demux = Demux(family_genus_species_joiner.output())
+
 mux_streams = []
 for i in range(0, 4):
     channel = demux.channel()
-    
+
     # Select only the species ID for querying plants.
     species_id_select = Select(
         channel,
         UniversalSelect(
-            species_accessor.output().schema(),
+            channel.schema(),
             {
                 'plants.species_id': {
                     'type': int,
@@ -149,6 +249,7 @@ for i in range(0, 4):
         )
     )
     engines.append(species_id_select)
+
     # Data source for the plants.
     plants_source = DBTable(input_file, 'plants', plants_schema)
     # Data accessor for the plants data source.
@@ -187,43 +288,54 @@ for i in range(0, 4):
     )
     engines.append(plants_height_aggregate)
 
-    species_id_grouper = Group(
+    family_genus_species_id_grouper = Group(
         channel, 
-        {'species.id': lambda a, b: a == b}
+        {
+            'family.id': lambda a, b: a == b,
+            'genus.id': lambda a, b: a == b,
+            'species.id': lambda a, b: a == b
+        }
     )
-    engines.append(species_id_grouper)
+    engines.append(family_genus_species_id_grouper)
 
-    joiner = Join(species_id_grouper.output(), plants_height_aggregate.output())
-    engines.append(joiner)
-    mux_streams.append(joiner.output())
+    species_plants_joiner = Join(
+        family_genus_species_id_grouper.output(), 
+        plants_height_aggregate.output()
+    )
+    engines.append(species_plants_joiner)
+    mux_streams.append(species_plants_joiner.output())
 
 mux = Mux(*mux_streams)
+engines.append(mux)
 
 result_stack = ResultStack(
     mux.output(),
+    # family_genus_species_joiner.output(),
 )
+engines.append(result_stack)
 
 info_queue = Queue()
 
 def manage(task):
     print 'Running: ' + str(task)
     task.run()
-    info_queue.put(ThreadInfo())
+    info_queue.put((task, ThreadInfo()))
 
 tasks = []
 
-tasks += [('engine', e) for e in engines]
+tasks += [(e.name, e) for e in engines]
 
-tasks += [
-    ('Query Streamer', query_streamer), 
-    ('Species Accessor', species_accessor),
-    ('Mux', mux),
-    ('Result Stack', result_stack),
-]
+#tasks += [
+#    ('Query Streamer', query_streamer), 
+#    ('Species Accessor', species_accessor),
+#    ('Mux', mux),
+#    ('Result Stack', result_stack),
+#]
 
 threads = []
 
 for t in tasks:
+    print 'Creating new thread'
     threads.append(
         Thread(
             target = manage, 
@@ -238,7 +350,11 @@ for t in threads:
 for t in threads:
     t.join()
 
+infos = {}
 while not info_queue.empty():
-    i = info_queue.get()
-    print i
+    t, i = info_queue.get()
+    infos[t] = i
     info_queue.task_done()
+
+for name, task in tasks:
+    print infos[task]

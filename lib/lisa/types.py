@@ -28,6 +28,8 @@ class Interval(object):
     def contains(self, other):
         pass
 
+IntInterval = Interval(int)
+
 class Geometry(object):
     def __init__(self, wkb):
         self._wkb = wkb

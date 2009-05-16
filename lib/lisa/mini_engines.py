@@ -9,6 +9,8 @@ from schema import Schema
 
 class MiniEngine(object):
     def __init__(self):
+        self.name = str(self.__class__.__name__)
+        print 'Creating ME: %s' % (self.name)
         # maybe setup some logging here
         pass
 
@@ -30,6 +32,7 @@ class MiniEngine(object):
 
 class DataAccessor(MiniEngine):
     def __init__(self, query_stream, data_source, access_method):
+        MiniEngine.__init__(self)
         self._query_stream = query_stream
         
         # Create an accessor for the combination of access method and data
@@ -476,7 +479,7 @@ class Join(MiniEngine):
 
         self._second_ep = self._second.connect()
         self._second_ep.notify(self._queue)
-
+        
         self._output = Stream(
             self._schema,
             SortOrder(),
