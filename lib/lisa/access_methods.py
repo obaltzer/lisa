@@ -32,15 +32,15 @@ class FindIdentities(AccessMethod):
             self.query = self._query_iterator
         
     def accepts(self, schema):
-        print 'Other: %s' % (schema)
-        print 'Self: %s' % (self._data_source.schema())
+        # print 'Other: %s' % (schema)
+        # print 'Self: %s' % (self._data_source.schema())
         for a in schema:
             if a not in self._data_source.schema():
                 return False
         return True
 
     def _query_iterator(self, schema, q):
-        print 'query_iterator: %s' % (q)
+        # print 'query_iterator: %s' % (q)
         indices = []
         i = 0
         for a in schema:

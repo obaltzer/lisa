@@ -23,7 +23,8 @@ input_file = sys.argv[1]
 #
 # Query 1
 #
-# SELECT species.id, MAX(plants.height) FROM species 
+# SELECT species.id, MAX(plants.height) 
+# FROM species 
 # LEFT JOIN plants ON  plants.species_id = species.id 
 # WHERE plants.age >= 10 AND plants.age <= 50 
 # GROUP BY species.id;

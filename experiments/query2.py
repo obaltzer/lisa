@@ -21,7 +21,15 @@ input_file = sys.argv[1]
 
 #############################################################
 #
-# TEST 1
+# Query 2
+#
+# SELECT family.id, genus.id, species.id, MAX(plants.height) 
+# FROM family
+# LEFT JOIN genus ON genus.family_id = family.id 
+# LEFT JOIN species ON species.genus_id = genus.id 
+# LEFT JOIN plants ON plants.species_id =  species.id 
+# WHERE plants.age >= 10 AND plants.age <= 50 
+# GROUP BY ROLLUP(family.id, genus.id, species.id)
 #
 #############################################################
 
@@ -231,7 +239,7 @@ engines.append(family_genus_species_joiner)
 demux = Demux(family_genus_species_joiner.output())
 
 mux_streams = []
-for i in range(0, 4):
+for i in range(4):
     channel = demux.channel()
 
     # Select only the species ID for querying plants.
@@ -297,6 +305,7 @@ for i in range(0, 4):
         }
     )
     engines.append(family_genus_species_id_grouper)
+    # mux_streams.append(family_genus_species_id_grouper.output())
 
     species_plants_joiner = Join(
         family_genus_species_id_grouper.output(), 
@@ -308,34 +317,168 @@ for i in range(0, 4):
 mux = Mux(*mux_streams)
 engines.append(mux)
 
-result_stack = ResultStack(
+
+# First aggregation level output selection
+family_genus_species_select = Select(
     mux.output(),
-    # family_genus_species_joiner.output(),
+    UniversalSelect(
+        mux.output().schema(),
+        {
+            'family.id': {
+                'type': int,
+                'args': ['family.id'],
+                'function': lambda v: v
+            },
+            'genus.id': {
+                'type': int,
+                'args': ['genus.id'],
+                'function': lambda v: v
+            },
+            'species.id': {
+                'type': int,
+                'args': ['species.id'],
+                'function': lambda v: v
+            },
+            'plants.height': {
+                'type': int,
+                'args': ['plants.height'],
+                'function': lambda v: v
+            },
+        }
+    )
+)
+engines.append(family_genus_species_select)
+
+# Second aggregation level output selection
+family_genus_select = Select(
+    family_genus_species_select.output(),
+    UniversalSelect(
+        family_genus_species_select.output().schema(),
+        {
+            'family.id': {
+                'type': int,
+                'args': ['family.id'],
+                'function': lambda v: v
+            },
+            'genus.id': {
+                'type': int,
+                'args': ['genus.id'],
+                'function': lambda v: v
+            },
+            'plants.height': {
+                'type': int,
+                'args': ['plants.height'],
+                'function': lambda v: v
+            },
+        }
+    )
+)
+engines.append(family_genus_select)
+
+# Generate aggregation groups for second aggregation level.
+family_genus_grouper = Group(
+    family_genus_select.output(), 
+    {
+        'family.id': lambda a, b: a == b,
+        'genus.id': lambda a, b: a == b
+    },
+)
+engines.append(family_genus_grouper)
+
+# Aggregate second level
+family_genus_aggregate = Aggregate(
+    family_genus_grouper.output(),
+    MaxHeightAggregator(family_genus_grouper.output().schema())
+)
+engines.append(family_genus_aggregate)
+
+# Third aggregation level output selection
+family_select = Select(
+    family_genus_aggregate.output(),
+    UniversalSelect(
+        family_genus_aggregate.output().schema(),
+        {
+            'family.id': {
+                'type': int,
+                'args': ['family.id'],
+                'function': lambda v: v
+            },
+            'plants.height': {
+                'type': int,
+                'args': ['plants.height'],
+                'function': lambda v: v
+            },
+        }
+    )
+)
+engines.append(family_select)
+
+# Generate aggregation groups for third aggregation level.
+family_grouper = Group(
+    family_select.output(), 
+    {
+        'family.id': lambda a, b: a == b,
+    },
+)
+engines.append(family_grouper)
+
+# Aggregate third level
+family_aggregate = Aggregate(
+    family_grouper.output(),
+    MaxHeightAggregator(family_grouper.output().schema())
+)
+engines.append(family_aggregate)
+
+# Fourth aggregation level output selection
+all_select = Select(
+    family_aggregate.output(),
+    UniversalSelect(
+        family_aggregate.output().schema(),
+        {
+            'plants.height': {
+                'type': int,
+                'args': ['plants.height'],
+                'function': lambda v: v
+            },
+        }
+    )
+)
+engines.append(all_select)
+
+# Generate aggregation groups for fourth aggregation level.
+all_grouper = Group(
+    all_select.output(), 
+    {
+    },
+)
+engines.append(all_grouper)
+
+# Aggregate fourth level
+all_aggregate = Aggregate(
+    all_grouper.output(),
+    MaxHeightAggregator(all_grouper.output().schema())
+)
+engines.append(all_aggregate)
+
+result_stack = ResultStack(
+    family_genus_species_select.output(),
+    family_genus_aggregate.output(),
+    family_aggregate.output(),
+    all_aggregate.output(),
 )
 engines.append(result_stack)
 
 info_queue = Queue()
 
 def manage(task):
-    print 'Running: ' + str(task)
     task.run()
     info_queue.put((task, ThreadInfo()))
 
 tasks = []
-
 tasks += [(e.name, e) for e in engines]
 
-#tasks += [
-#    ('Query Streamer', query_streamer), 
-#    ('Species Accessor', species_accessor),
-#    ('Mux', mux),
-#    ('Result Stack', result_stack),
-#]
-
 threads = []
-
 for t in tasks:
-    print 'Creating new thread'
     threads.append(
         Thread(
             target = manage, 

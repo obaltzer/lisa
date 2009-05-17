@@ -132,11 +132,15 @@ class ResultStack(MiniEngine):
         MiniEngine.__init__(self)
         self._streams = streams
         self._queue = Queue(1)
+        print 'Output schemas:'
+        for s in self._streams:
+            print ', '.join([a.name() for a in s.schema()])
         self._endpoints = dict([(s.connect(), s) for s in self._streams])
         for e in self._endpoints:
             e.notify(self._queue)
 
     def run(self):
+        c = 0
         while self._endpoints or not self._queue.empty():
             # print '\t\twaiting for endpoint'
             e = self._queue.get()
@@ -156,6 +160,10 @@ class ResultStack(MiniEngine):
                     r = e.receive(False)
                     if type(r) is not StopWord:
                         print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
+                        c += 1
+                    else:
+                        # print '\tSTOP'
+                        pass
                     e.processed()
                 except StreamClosedException:
                     # print '\t\tReceive ClosedException.'
@@ -174,6 +182,7 @@ class ResultStack(MiniEngine):
                     pass
             self._queue.task_done()
         print '\t\tAll streams done.'
+        print '\t\tReceived %d record.' % (c)
 
 class Select(MiniEngine):
     def __init__(self, input, transformer):
@@ -334,9 +343,10 @@ class Group(MiniEngine):
                 r = self._input_ep.receive()
                 if type(r) is StopWord:
 #                    print 'Sending: %s' % (str(StopWord()))
-                    self._output_stream.send(StopWord())
+                    #self._output_stream.send(StopWord())
 #                    print 'Sending: %s' % (str(r))
-                    self._output_stream.send(r)
+                    #self._output_stream.send(r)
+                    pass
                 else:
                     if last == None or self._compare(last, r):
 #                        print 'Sending: %s' % (str(r))
