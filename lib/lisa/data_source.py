@@ -240,6 +240,8 @@ class Rtree(DataSource):
                 return self._intersect_geom(ranges[self._name])
             elif type(ranges[self._name]) is tuple:
                 return self._intersect_box(ranges[self._name])
+            elif ranges[self._name] is None:
+                return []
             else:
                 raise Exception('Invalid argument to intersect() method.')
         elif 'oid' in ranges and self._name not in ranges:

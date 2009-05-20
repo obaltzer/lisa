@@ -102,8 +102,8 @@ class DataAccessor(MiniEngine):
                 self._query_stream_ep.processed()
             except StreamClosedException:
                 closed = True
-        print 'Closing DA stream'
         self._output_stream.close()
+        print 'Closing DA stream'
 
 class ArrayStreamer(MiniEngine):
     def __init__(self, schema, data, sort_order = None):
@@ -159,7 +159,7 @@ class ResultStack(MiniEngine):
                 try:
                     r = e.receive(False)
                     if type(r) is not StopWord:
-                        print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
+                        # print '\t\tReceived: %s from %s' % (r, self._endpoints[e])
                         c += 1
                     else:
                         # print '\tSTOP'
@@ -182,7 +182,68 @@ class ResultStack(MiniEngine):
                     pass
             self._queue.task_done()
         print '\t\tAll streams done.'
-        print '\t\tReceived %d record.' % (c)
+        print '\t\tResultStack: Received %d record.' % (c)
+        print '\t\tResultStack: done.'
+
+class ResultFile(MiniEngine):
+    def __init__(self, outfile, *streams):
+        MiniEngine.__init__(self)
+        self._f = open(outfile, 'w')
+        self._streams = streams
+        self._queue = Queue(1)
+        # print 'Output schemas:'
+        for s in self._streams:
+            print ', '.join([a.name() for a in s.schema()])
+        self._endpoints = dict([(s.connect(), s) for s in self._streams])
+        for e in self._endpoints:
+            e.notify(self._queue)
+
+    def run(self):
+        c = 0
+        while self._endpoints or not self._queue.empty():
+            # print '\t\twaiting for endpoint'
+            e = self._queue.get()
+            
+            if e in self._endpoints:
+                # print 'got endpoint: %s' % (self._endpoints[e])
+                pass
+            else:
+                # print 'got non-existing endpoint'
+                continue
+
+            valid = True
+            closed = False
+            while valid and not closed:
+                # print '\t\t%s: receiving' % (self._endpoints[e])
+                try:
+                    r = e.receive(False)
+                    if type(r) is not StopWord:
+                        self._f.write(','.join(str(x) for x in r) + '\n')
+                        c += 1
+                    else:
+                        # print '\tSTOP'
+                        pass
+                    e.processed()
+                except StreamClosedException:
+                    # print '\t\tReceive ClosedException.'
+                    closed = True
+                except:
+                    valid = False
+                    # print '\t\tReceive failed.'
+            else:
+                if e in self._endpoints:
+                    # print '%s: closed? %s' % (self._endpoints[e], e.closed())
+                    if closed:
+                        # print '%s: closed? %s' % (self._endpoints[e], e.closed())
+                        del self._endpoints[e]
+                else:
+                    # print '%s: already removed' % (e)
+                    pass
+            self._queue.task_done()
+        # print '\t\tAll streams done.'
+        # print '\t\tResultFile: Received %d record.' % (c)
+        self._f.close()
+        print '\t\tResultFile: done. Write %d record.' % (c)
 
 class Select(MiniEngine):
     def __init__(self, input, transformer):
@@ -226,8 +287,8 @@ class Select(MiniEngine):
                 self._input_ep.processed()
             except StreamClosedException:
                 closed = True
-        print 'Closing SELECT stream'
         self._output_stream.close()
+        print 'Closing SELECT stream'
 
 class Mux(MiniEngine):
     def __init__(self, *streams):
@@ -260,11 +321,8 @@ class Mux(MiniEngine):
             # print '\t\twaiting for endpoint'
             e = self._queue.get()
             
-            if e in self._endpoints:
-                # print 'got endpoint: %s' % (self._endpoints[e])
-                pass
-            else:
-                # print 'got non-existing endpoint'
+            if e not in self._endpoints:
+                print '\t********* got non-existing endpoint'
                 continue
 
             valid = True
@@ -292,10 +350,11 @@ class Mux(MiniEngine):
                     # print '%s: already removed' % (e)
                     pass
             self._queue.task_done()
-        print '\t\tAll streams done.'
+        #print '\t\tAll streams done.'
         self._output.close()
-        for e in self._stats:
-            print 'Received %d records from %s' % (self._stats[e], e)
+        # for e in self._stats:
+        #    print 'Received %d records from %s' % (self._stats[e], e)
+        print 'Mux: done.'
 
 class Group(MiniEngine):
     def __init__(self, input_stream, group_attributes):
@@ -501,6 +560,8 @@ class Join(MiniEngine):
             self._second_ep: self._second,
         }
 
+        self._empty = 0
+
     def output(self):
         return self._output
 
@@ -510,6 +571,9 @@ class Join(MiniEngine):
 
         b1 = buffers[self._first_ep].get(i)
         b2 = buffers[self._second_ep].get(i)
+
+        if len(b2) == 1:
+            self._empty += 1
 
         for r1 in b1[:-1]:
             for r2 in b2[:-1]:
@@ -564,6 +628,7 @@ class Join(MiniEngine):
                     done &= o.closed()
             self._queue.task_done()
         self._output.close()
+        print 'Join done. %d empty buffers.' % (self._empty)
 
 class Filter(MiniEngine):
     def __init__(self, input, predicate):
@@ -645,3 +710,28 @@ class Aggregate(MiniEngine):
         print 'Closing AGGREGATE stream'
         self._output.close()
 
+class Counter(MiniEngine):
+    def __init__(self, input):
+        MiniEngine.__init__(self)
+        self._input = input
+        self._input_ep = self._input.connect()
+        self._s = 0
+        self._r = 0
+
+    def stats(self):
+        return (self._r, self._s)
+
+    def run(self):
+        closed = False
+        while not closed:
+            try:
+                r = self._input_ep.receive()
+                if type(r) is StopWord:
+                    self._s += 1
+                else:
+                    self._r += 1
+                self._input_ep.processed()
+            except StreamClosedException:
+                closed = True
+        print 'Closing COUNTER: %d record, %d stop words' % \
+                (self._r, self._s)

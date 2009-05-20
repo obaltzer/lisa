@@ -31,12 +31,20 @@ class Interval(object):
 IntInterval = Interval(int)
 
 class Geometry(object):
-    def __init__(self, wkb):
-        self._wkb = wkb
-        self._geom = None
+    def __init__(self, o):
+        assert o is not None
+        if type(o) is str:
+            self._wkb = o
+            self._geom = None
+        else:
+            self._geom = o
+            assert self._geom is not None
 
     def geom(self):
-        if not self._geom:
+        if self._geom is None:
+            assert self._wkb is not None
+            assert type(self._wkb) is str
+            assert len(self._wkb) != 0
             self._geom = wkb.loads(self._wkb)
         return self._geom
 

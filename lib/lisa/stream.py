@@ -1,5 +1,5 @@
 from Queue import Queue
-from threading import Lock
+from threading import Lock, current_thread
 
 from schema import Schema
 
@@ -98,13 +98,22 @@ class Demux(object):
         '''
         Representation of a stream's endpoint.
         '''
-        def __init__(self, channel):
+        def __init__(self, channel, idx):
             self._channel = channel
+            self._i = idx
             self._queue = Queue()
             
         def receive(self, block = True):
-            if self._queue.empty():
-                self._channel._update()
+            try:
+                if self._queue.empty():
+#                    print 'Updating for end point: [%d]' % (self._i)
+                    self._channel._update(self._i)
+            except StreamClosedException:
+                if self._queue.empty():
+                    raise
+                else:
+                    pass
+#            print 'Returning for end point: [%d]' % (self._i)
             return self._queue.get()
 
         def processed(self):
@@ -127,18 +136,26 @@ class Demux(object):
             return self._demux.sort_order()
 
         def connect(self):
-            c = Demux.EndPoint(self)
+            c = Demux.EndPoint(self, len(self._ep))
             self._ep.append(c)
+            print 'Channel now has %d endpoints' % (len(self._ep))
             return c
         
-        def _update(self):
+        def _update(self, ep = -1):
+#            print '\t%s: update called' % (ep)
             self._lock.acquire()
+#            print '\t%s: lock acquired' % (ep) 
             if self._closed:
+#                print '\t%s: stream closed' % (ep)
                 self._lock.release()
+#                print '\t%s: lock released' % (ep)
                 raise StreamClosedException
             try:
+#                print '\t%s: trying receive' % (ep)
                 r = self._demux._receive()
+#                print '\t%s: record received' % (ep)
                 for e in self._ep:
+#                    print '\t%s: sending to ep: %s' % (ep, e._i)
                     e.send(r)
             except StreamClosedException:
                 self._closed = True
