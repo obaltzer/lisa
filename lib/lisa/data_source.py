@@ -218,6 +218,9 @@ class Rtree(DataSource):
         Returns records for which their geometry portion intersects with
         the given geometry.
         '''
+        if not geom.geom().is_valid or geom.geom().area == 0.0:
+            return 
+
         query = geom.geom().bounds
         for id, g in self._intersect_box(query):
             if g.geom().intersects(geom.geom()):

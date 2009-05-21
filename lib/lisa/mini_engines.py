@@ -221,7 +221,7 @@ class ResultFile(MiniEngine):
                         self._f.write(','.join(str(x) for x in r) + '\n')
                         c += 1
                     else:
-                        # print '\tSTOP'
+                        # self._f.write('--STOP--\n')
                         pass
                     e.processed()
                 except StreamClosedException:
