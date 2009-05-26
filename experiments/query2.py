@@ -17,7 +17,8 @@ from lisa.stream import Demux
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
 
-input_file = sys.argv[1]
+tracks = int(sys.argv[1])
+input_file = sys.argv[2]
 
 #############################################################
 #
@@ -239,7 +240,7 @@ engines.append(family_genus_species_joiner)
 demux = Demux(family_genus_species_joiner.output())
 
 mux_streams = []
-for i in range(4):
+for i in range(tracks):
     channel = demux.channel()
 
     # Select only the species ID for querying plants.
@@ -501,3 +502,5 @@ while not info_queue.empty():
 
 for name, task in tasks:
     print infos[task]
+
+sys.stderr.write('%d,%d\n' % (tracks, len(threads)))

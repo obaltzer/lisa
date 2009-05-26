@@ -20,6 +20,10 @@ from lisa.stream import Demux
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
 
+import lisa.sigint
+
+tracks = int(sys.argv[1])
+
 log = logging.getLogger('main')
 log.setLevel(logging.DEBUG)
 ch = logging.StreamHandler()
@@ -34,8 +38,8 @@ query = Geometry(Polygon((
 )))
 
 counties_file = 'data/spatial/counties'
-geonames_file = 'data/spatial/geonames_medium'
-#geonames_file = 'data/spatial/geonames'
+#geonames_file = 'data/spatial/geonames_medium'
+geonames_file = 'data/spatial/geonames'
 
 #############################################################
 #
@@ -151,7 +155,7 @@ def intersection(a, b):
 # Data source for geonames
 
 mux_streams = []
-for i in range(8):
+for i in range(tracks):
     channel = demux.channel()
     
     # To query the locations in the geonames layer, trim the counties to
@@ -305,3 +309,5 @@ while not info_queue.empty():
 
 for name, task in tasks:
     print infos[task]
+
+sys.stderr.write('%d,%d\n' % (tracks, len(threads)))

@@ -430,14 +430,20 @@ class Sort(MiniEngine):
         self._input_ep = input_stream.connect()
         self._schema = self._input_stream.schema()
         self._all = all
-        self._indices = {}
+        self._indices = []
+        # Passed as attribues = [('name', comparison_function), ...]
         for a in sort_attributes:
-            i = self._schema.index(a)
+            # Check if the given attribute exists in the schema.
+            i = self._schema.index(a[0])
             t = self._schema[i].type()
-            if sort_attributes[a]:
-                self._indices[i] = sort_attributes[a]
+
+            if a[1]:
+                # If a comparison function is specified, use it.
+                self._indices.append((i, a[1]))
             elif hasattr(t, '__cmp__'):
-                self._indices[i] = None
+                # Otherwise test if the given type has a comparator and use
+                # it.
+                self._indices.append((i, None))
             else:
                 raise Exception('Type of attribute [%s] does not have ' + \
                                 'a comparison operator.' % (a))
@@ -453,13 +459,14 @@ class Sort(MiniEngine):
 
     def _compare(self, a, b):
         for i in self._indices:
-            if self._indices[i]:
-                x = self._indices[i](a[i], b[i])
-                if x:
+            # Defined as i = (index, comparator)
+            if i[1]:
+                x = i[1](a[i[0]], b[i[0]])
+                if x != 0:
                     return x
             else:
-                x = cmp(a[i], b[i])
-                if x:
+                x = cmp(a[i[0]], b[i[0]])
+                if x != 0:
                     return x
         return 0
 
