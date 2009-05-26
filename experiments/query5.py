@@ -710,9 +710,6 @@ for t in threads:
 
 log.info('All threads are done.')
 
-for c in counters:
-    print 'Counter: %d records, %d stop words' % c.stats()
-
 infos = {}
 while not info_queue.empty():
     t, i = info_queue.get()
