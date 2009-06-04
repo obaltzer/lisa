@@ -78,7 +78,7 @@ class FindRange(AccessMethod):
     def accepts(self, schema):
         found = False
         for a in schema:
-            if not hasattr(a.type(), 'contains'):
+            if not hasattr(a.type(), 'intersects'):
                 return False
             else:
                 for b in self._data_source.schema():
@@ -93,7 +93,7 @@ class FindRange(AccessMethod):
         for r in self._data_source:
             match = True
             for a, b in indices:
-                match &= q[a].contains(r[b])
+                match &= q[a].intersects(r[b])
             if match:
                 yield r
 
@@ -103,9 +103,16 @@ class FindRange(AccessMethod):
         for i, a in enumerate(schema):
             ranges[a.name()] = q[i]
             indices.append((i, self._data_source.schema().index(a)))
+        
+        retrieved = 0
+        returned = 0
         for r in self._data_source.intersect(ranges):
+            retrieved += 1
             match = True
             for a, b in indices:
-                match &= q[a].contains(r[b])
+                match &= q[a].intersects(r[b])
             if match:
+                returned += 1
                 yield r
+        #print 'Retrieved: ', retrieved
+        #print 'Returned: ', returned

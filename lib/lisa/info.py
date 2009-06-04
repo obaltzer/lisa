@@ -1,10 +1,13 @@
 import os
-from threading import current_thread
+try:
+    from threading import current_thread
+except:
+    from threading import currentThread as current_thread
 
 class ThreadInfo(object):
     def __init__(self):
         self._info = {
-            'name': current_thread().name,
+            'name': current_thread().getName(),
             'pid': os.getpid(),
         }
         try:

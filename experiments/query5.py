@@ -5,7 +5,12 @@ import time
 # Setup the package search path.
 sys.path.insert(0, '../lib')
 
-from threading import Thread, current_thread
+from threading import Thread
+try:
+    from threading import current_thread
+except:
+    from threading import currentThread as current_thread
+
 from Queue import Queue
 from shapely.geometry import Polygon
 
@@ -19,8 +24,6 @@ from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
 from lisa.stream import Demux
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
-
-import lisa.sigint
 
 tracks = int(sys.argv[1])
 

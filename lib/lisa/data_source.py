@@ -1,5 +1,8 @@
 import sqlite3
-from threading import current_thread
+try:
+    from threading import current_thread
+except:
+    from threading import currentThread as current_thread
 
 from types import Geometry
 from schema import Schema, Attribute
@@ -222,9 +225,17 @@ class Rtree(DataSource):
             return 
 
         query = geom.geom().bounds
+        # print query
+        c = 0
+        r = 0
         for id, g in self._intersect_box(query):
+            c += 1
+            # if geom.geom().intersects(g.geom()):
             if g.geom().intersects(geom.geom()):
+                r += 1
                 yield (id, g)
+        #print 'Total: ', c
+        #print 'Returned: ', r
 
     def _intersect_box(self, box):
         for id in self._tree.intersection(box):

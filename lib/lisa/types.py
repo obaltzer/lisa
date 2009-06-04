@@ -15,7 +15,7 @@ class Interval(object):
             return self[1]
 
     def __init__(self, base):
-        if not hasattr(base, '__lt__'):
+        if not (hasattr(base, '__lt__') or base is int or base is float):
             raise Exception, 'Base type must provide an order.'
         self._base = base
 
@@ -25,7 +25,7 @@ class Interval(object):
     def __eq__(self, other):
         return other == self._base
 
-    def contains(self, other):
+    def intersects(self, other):
         pass
 
 IntInterval = Interval(int)
@@ -51,5 +51,5 @@ class Geometry(object):
     def __repr__(self):
         return self.geom().wkt
 
-    def contains(self, other):
-        return self.geom().contains(other.geom())
+    def intersects(self, other):
+        return self.geom().intersects(other.geom())
