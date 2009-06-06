@@ -188,7 +188,11 @@ class ResultStack(MiniEngine):
 class ResultFile(MiniEngine):
     def __init__(self, outfile, *streams):
         MiniEngine.__init__(self)
-        self._f = open(outfile, 'w')
+        if outfile:
+            self._f = open(outfile, 'w')
+        else:
+            import sys
+            self._f = sys.stdout
         self._streams = streams
         self._queue = Queue(1)
         # print 'Output schemas:'
@@ -218,7 +222,12 @@ class ResultFile(MiniEngine):
                 try:
                     r = e.receive(False)
                     if type(r) is not StopWord:
-                        self._f.write(','.join(str(x) for x in r) + '\n')
+                        o = [
+                            type(x) is float and ('%.8e' % x) or \
+                            str(x)
+                            for x in r
+                        ]
+                        self._f.write(','.join(o) + '\n')
                         c += 1
                     else:
                         # self._f.write('--STOP--\n')

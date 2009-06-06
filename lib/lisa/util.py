@@ -11,26 +11,53 @@ class UniversalSelect(object):
             },
             ...
         }
+
+        or:
+
+        mapping = [
+            ('name', {
+                'type': type, 
+                'args': ['input', 'input', ...], 
+                'function': function
+            }),
+            ...
+        ]
         '''
         self._input_schema = input_schema
         self._schema = Schema()
-        self._mapping = mapping
         self._f = []
-        for name in mapping:
-            # Create output schema type
-            self._schema.append(Attribute(
-                name,
-                mapping[name]['type'],
-            ))
-            # Verify input schema and mapping
-            for n in mapping[name]['args']:
-                if n not in self._input_schema:
-                    raise Exception('Incompatible schema.')
+        if type(mapping) is dict:
+            for name in mapping:
+                # Create output schema type
+                self._schema.append(Attribute(
+                    name,
+                    mapping[name]['type'],
+                ))
+                # Verify input schema and mapping
+                for n in mapping[name]['args']:
+                    if n not in self._input_schema:
+                        raise Exception('Incompatible schema.')
 
-            self._f.append((
-                [input_schema.index(n) for n in mapping[name]['args']],
-                mapping[name]['function'],
-            ))
+                self._f.append((
+                    [input_schema.index(n) for n in mapping[name]['args']],
+                    mapping[name]['function'],
+                ))
+        elif type(mapping) is list:
+            for name, spec in mapping:
+                # Create output schema type
+                self._schema.append(Attribute(
+                    name,
+                    spec['type'],
+                ))
+                # Verify input schema and mapping
+                for n in spec['args']:
+                    if n not in self._input_schema:
+                        raise Exception('Incompatible schema.')
+
+                self._f.append((
+                    [input_schema.index(n) for n in spec['args']],
+                    spec['function'],
+                ))
 
     def schema(self):
         return self._schema

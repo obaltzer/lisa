@@ -1,9 +1,12 @@
-files="data/plants_A_1E4.db data/plants_A_1E5.db data/plants_A_1E6.db data/plants_A_1E7.db"
-tracks="1 2 3 4 5 6 7 8 9 10 11 12"
-runs=10
+#files="data/plants_A_1E4.db data/plants_A_1E5.db data/plants_A_1E6.db data/plants_A_1E7.db"
+#tracks="1 2 3 4 5 6 7 8 9 10 11 12"
+#runs=10
+files="data/plants_A_1E6.db"
+tracks="18 20 22"
+runs=1
 results=q1.txt
 sequence=0
-cat /dev/null > ${results}
+# cat /dev/null > ${results}
 cat /dev/null > tmp.$$
 for f in ${files}; do
     for t in ${tracks} ; do

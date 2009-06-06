@@ -127,10 +127,6 @@ counties_accessor = DataAccessor(
 )
 engines.append(counties_accessor)
 
-counter = Counter(counties_accessor.output())
-engines.append(counter)
-counters.append(counter)
-
 demux = Demux(counties_accessor.output())
 
 def intersection(a, b):
@@ -235,10 +231,6 @@ for i in range(tracks):
     mux_streams.append(joiner.output())
     # mux_streams.append(counties_select.output())
 
-    counter = Counter(counties_select.output())
-    engines.append(counter)
-    counters.append(counter)
-
 mux = Mux(*mux_streams)
 engines.append(mux)
 
@@ -278,8 +270,6 @@ for t in threads:
     # t.daemon = True
     t.start()
 
-log.info('Waiting for threads.')
-
 # done = False
 # while not done:
 #     done = True
@@ -293,10 +283,8 @@ log.info('Waiting for threads.')
 for t in threads:
     # log.info('Waiting for %s' % (t))
     t.join()
-    log.info('Done %s' % (t))
 
 # time.sleep(5)
-log.info('All threads are done.')
 
 for c in counters:
     print 'Counter: %d records, %d stop words' % c.stats()

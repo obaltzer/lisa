@@ -456,13 +456,8 @@ for t in tasks:
 for t in threads:
     t.start()
 
-log.info('Waiting for threads.')
-
 for t in threads:
     t.join()
-    log.info('Done %s' % (t))
-
-log.info('All threads are done.')
 
 for c in counters:
     print 'Counter: %d records, %d stop words' % c.stats()

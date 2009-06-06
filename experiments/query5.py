@@ -42,8 +42,8 @@ query = Geometry(Polygon((
 
 states_file = 'data/spatial/states'
 counties_file = 'data/spatial/counties'
-zip_file = 'data/spatial/zip5'
-cover_file = 'data/spatial/lulc'
+zip_file = 'data/spatial/zip5_small'
+cover_file = 'data/spatial/lulc_small'
 
 #############################################################
 #
@@ -112,6 +112,23 @@ def intersection(a, b):
             return None
     except:
         return None
+
+class UniversalFilter(object):
+    def __init__(self, input_schema, filters):
+        self._input_schema = input_schema
+        self._p = []
+        for k in filters:
+            self._p.append((input_schema.index(k), filters[k]))
+
+    def accepts(self, other_schema):
+        return self._input_schema == other_schema
+
+    def __call__(self, r):
+        for p in self._p:
+#            print '--> %s : %s' % (r[p[0]], p[1](r[p[0]]))
+            if not p[1](r[p[0]]):
+                return False
+        return True    
 
 #############################################################
 #
@@ -296,8 +313,19 @@ counties_trim = Select(
 )
 engines.append(counties_trim)
 
-counties_group = Group(
+counties_filter = Filter(
     counties_trim.output(),
+    UniversalFilter(
+        counties_trim.output().schema(),
+        {
+            'counties.geom': lambda g: g.geom().is_valid and g.geom().area != 0,
+        }
+    )
+)
+engines.append(counties_filter)
+
+counties_group = Group(
+    counties_filter.output(),
     {
         'states.oid': lambda a, b: a == b,
         'counties.oid': lambda a, b: a == b,
@@ -312,9 +340,9 @@ engines.append(counties_group)
 #############################################################
 
 zip_query = Select(
-    counties_trim.output(),
+    counties_filter.output(),
     UniversalSelect(
-        counties_trim.output().schema(),
+        counties_filter.output().schema(),
         {
             'zip.geom': {
                 'type': Geometry,
@@ -400,7 +428,18 @@ zip_trim = Select(
 )
 engines.append(zip_trim)
 
-demux = Demux(zip_trim.output())
+zip_filter = Filter(
+    zip_trim.output(),
+    UniversalFilter(
+        zip_trim.output().schema(),
+        {
+            'zip.geom': lambda g: g.geom().is_valid and g.geom().area != 0,
+        }
+    )
+)
+engines.append(zip_filter)
+
+demux = Demux(zip_filter.output())
 
 mux_streams = []
 for i in range(tracks):
@@ -464,43 +503,45 @@ for i in range(tracks):
         cover_join.output(),
         UniversalSelect(
             cover_join.output().schema(),
-            {
-                'states.oid': {
+            [
+                ('states.oid', {
                     'type': int,
                     'args': ['states.oid'],
                     'function': lambda v: v,
-                },
+                }),
                 #'states.geom': {
                 #    'type': Geometry,
                 #    'args': ['states.geom'],
                 #    'function': lambda v: v,
                 #},
-                'counties.oid': {
+                ('counties.oid', {
                     'type': int,
                     'args': ['counties.oid'],
                     'function': lambda v: v,
-                },
+                }),
                 #'counties.geom': {
                 #    'type': Geometry,
                 #    'args': ['counties.geom'],
                 #    'function': lambda v: v,
                 #},
-                'zip.oid': {
+                ('zip.oid', {
                     'type': int,
                     'args': ['zip.oid'],
                     'function': lambda v: v,
-                },
+                }),
                 #'zip.geom': {
                 #    'type': Geometry,
                 #    'args': ['counties.geom', 'zip.geom'],
                 #    'function': lambda a, b: intersection(a, b),
                 #},
-                'area': {
+                ('area', {
                     'type': float,
                     'args': ['zip.geom', 'cover.geom'],
-                    'function': lambda a, b: intersection(a, b).geom().area
-                }
-            }
+                    'function': 
+                        lambda a, b: 
+                            intersection(a, b).geom().area / b.geom().area
+                })
+            ]
         )
     )
     engines.append(cover_area)
@@ -516,7 +557,6 @@ for i in range(tracks):
         SumAggregator(cover_area.output().schema(), 'area')
     )
     engines.append(cover_aggregate)
-    
     mux_streams.append(cover_aggregate.output())
 
 mux = Mux(*mux_streams)
@@ -532,23 +572,23 @@ counties_level_select = Select(
     mux.output(),
     UniversalSelect(
         mux.output().schema(),
-        {
-            'states.oid': {
+        [
+            ('states.oid', {
                 'type': int,
                 'args': ['states.oid'],
                 'function': lambda v: v,
-            },
-            'counties.oid': {
+            }),
+            ('counties.oid', {
                 'type': int,
                 'args': ['counties.oid'],
                 'function': lambda v: v,
-            },
-            'area': {
+            }),
+            ('area', {
                 'type': float,
                 'args': ['area'],
                 'function': lambda v: v,
-            },
-        }
+            }),
+        ]
     )
 )
 engines.append(counties_level_select)
@@ -593,18 +633,18 @@ states_level_select = Select(
     counties_level_aggregate.output(),
     UniversalSelect(
         counties_level_aggregate.output().schema(),
-        {
-            'states.oid': {
+        [
+            ('states.oid', {
                 'type': int,
                 'args': ['states.oid'],
                 'function': lambda v: v,
-            },
-            'area': {
+            }),
+            ('area', {
                 'type': float,
                 'args': ['area'],
                 'function': lambda v: v,
-            },
-        }
+            }),
+        ]
     )
 )
 engines.append(states_level_select)
@@ -643,32 +683,32 @@ engines.append(states_level_aggregate)
 #
 #############################################################
 
-all_level_select = Select(
-    counties_level_aggregate.output(),
-    UniversalSelect(
-        counties_level_aggregate.output().schema(),
-        {
-            'area': {
-                'type': float,
-                'args': ['area'],
-                'function': lambda v: v,
-            },
-        }
-    )
-)
-engines.append(all_level_select)
-
-all_level_group = Group(
-    all_level_select.output(),
-    {}
-)
-engines.append(all_level_group)
-
-all_level_aggregate = Aggregate(
-    all_level_group.output(),
-    SumAggregator(all_level_group.output().schema(), 'area')
-)
-engines.append(all_level_aggregate)
+# all_level_select = Select(
+#     counties_level_aggregate.output(),
+#     UniversalSelect(
+#         counties_level_aggregate.output().schema(),
+#         {
+#             'area': {
+#                 'type': float,
+#                 'args': ['area'],
+#                 'function': lambda v: v,
+#             },
+#         }
+#     )
+# )
+# engines.append(all_level_select)
+# 
+# all_level_group = Group(
+#     all_level_select.output(),
+#     {}
+# )
+# engines.append(all_level_group)
+# 
+# all_level_aggregate = Aggregate(
+#     all_level_group.output(),
+#     SumAggregator(all_level_group.output().schema(), 'area')
+# )
+# engines.append(all_level_aggregate)
 
 #############################################################
 #
@@ -681,7 +721,7 @@ result_stack = ResultFile(
     mux.output(),
     counties_level_aggregate.output(),
     states_level_aggregate.output(),
-    all_level_aggregate.output()
+#    all_level_aggregate.output()
 )
 engines.append(result_stack)
 
