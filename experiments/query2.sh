@@ -1,5 +1,5 @@
-files="data/plants_A_1E4.db data/plants_A_1E5.db data/plants_A_1E6.db"
-tracks="18 20 22"
+files="data/plants_A_1E3.db data/plants_A_1E4.db data/plants_A_1E5.db data/plants_A_1E6.db"
+tracks="1 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30 32 34"
 runs=1
 results=q2.txt
 sequence=0
