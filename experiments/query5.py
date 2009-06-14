@@ -42,8 +42,8 @@ query = Geometry(Polygon((
 
 states_file = 'data/spatial/states'
 counties_file = 'data/spatial/counties'
-zip_file = 'data/spatial/zip5_small'
-cover_file = 'data/spatial/lulc_small'
+zip_file = 'data/spatial/zip5'
+cover_file = 'data/spatial/lulc'
 
 #############################################################
 #
@@ -318,7 +318,7 @@ counties_filter = Filter(
     UniversalFilter(
         counties_trim.output().schema(),
         {
-            'counties.geom': lambda g: g.geom().is_valid and g.geom().area != 0,
+            'counties.geom': lambda g: g and g.geom().is_valid and g.geom().area != 0,
         }
     )
 )
@@ -433,7 +433,7 @@ zip_filter = Filter(
     UniversalFilter(
         zip_trim.output().schema(),
         {
-            'zip.geom': lambda g: g.geom().is_valid and g.geom().area != 0,
+            'zip.geom': lambda g: g and g.geom().is_valid and g.geom().area != 0,
         }
     )
 )
