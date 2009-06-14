@@ -12,7 +12,7 @@ from lisa.access_methods import FindIdentities, FindRange
 from lisa.types import IntInterval
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate
+                              Aggregate, ResultFile
 from lisa.stream import Demux
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
@@ -324,28 +324,28 @@ family_genus_species_select = Select(
     mux.output(),
     UniversalSelect(
         mux.output().schema(),
-        {
-            'family.id': {
+        [
+            ('family.id', {
                 'type': int,
                 'args': ['family.id'],
                 'function': lambda v: v
-            },
-            'genus.id': {
+            }),
+            ('genus.id', {
                 'type': int,
                 'args': ['genus.id'],
                 'function': lambda v: v
-            },
-            'species.id': {
+            }),
+            ('species.id', {
                 'type': int,
                 'args': ['species.id'],
                 'function': lambda v: v
-            },
-            'plants.height': {
+            }),
+            ('plants.height', {
                 'type': int,
                 'args': ['plants.height'],
                 'function': lambda v: v
-            },
-        }
+            }),
+        ]
     )
 )
 engines.append(family_genus_species_select)
@@ -355,23 +355,23 @@ family_genus_select = Select(
     family_genus_species_select.output(),
     UniversalSelect(
         family_genus_species_select.output().schema(),
-        {
-            'family.id': {
+        [
+            ('family.id', {
                 'type': int,
                 'args': ['family.id'],
                 'function': lambda v: v
-            },
-            'genus.id': {
+            }),
+            ('genus.id', {
                 'type': int,
                 'args': ['genus.id'],
                 'function': lambda v: v
-            },
-            'plants.height': {
+            }),
+            ('plants.height', {
                 'type': int,
                 'args': ['plants.height'],
                 'function': lambda v: v
-            },
-        }
+            }),
+        ]
     )
 )
 engines.append(family_genus_select)
@@ -398,18 +398,18 @@ family_select = Select(
     family_genus_aggregate.output(),
     UniversalSelect(
         family_genus_aggregate.output().schema(),
-        {
-            'family.id': {
+        [
+            ('family.id', {
                 'type': int,
                 'args': ['family.id'],
                 'function': lambda v: v
-            },
-            'plants.height': {
+            }),
+            ('plants.height', {
                 'type': int,
                 'args': ['plants.height'],
                 'function': lambda v: v
-            },
-        }
+            }),
+        ]
     )
 )
 engines.append(family_select)
@@ -461,11 +461,12 @@ all_aggregate = Aggregate(
 )
 engines.append(all_aggregate)
 
-result_stack = ResultStack(
+result_stack = ResultFile(
+    'results.txt',
     family_genus_species_select.output(),
-    family_genus_aggregate.output(),
-    family_aggregate.output(),
-    all_aggregate.output(),
+#    family_genus_aggregate.output(),
+#    family_aggregate.output(),
+#    all_aggregate.output(),
 )
 engines.append(result_stack)
 

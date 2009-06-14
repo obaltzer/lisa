@@ -1,8 +1,11 @@
 #files="data/plants_A_1E4.db data/plants_A_1E5.db data/plants_A_1E6.db data/plants_A_1E7.db"
 #tracks="1 2 3 4 5 6 7 8 9 10 11 12"
 #runs=10
-files="data/plants_A_1E6.db"
-tracks="18 20 22"
+files="data/plants_A_1E5.db data/plants_A_1E6.db"
+#files="data/plants_A_1E3.db data/plants_A_1E4.db"
+#tracks="14 16 18"
+#tracks="1 2 3 4 5 6 7 8 9 10 11 12 14 16 18"
+tracks="14 16 18 20 22 24 26 28 30 32 34"
 runs=1
 results=q1.txt
 sequence=0

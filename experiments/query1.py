@@ -12,7 +12,7 @@ from lisa.access_methods import FindIdentities, FindRange
 from lisa.types import IntInterval
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate
+                              Aggregate, ResultFile
 from lisa.stream import Demux
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
@@ -201,7 +201,8 @@ for i in range(tracks):
 
 mux = Mux(*mux_streams)
 
-result_stack = ResultStack(
+result_stack = ResultFile(
+    'results.txt',
     mux.output(),
 )
 

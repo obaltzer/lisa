@@ -8,6 +8,9 @@ class Interval(object):
         def contains(self, other):
             return self[0] <= other < self[1]
 
+        def intersects(self, other):
+            return self[0] <= other < self[1]
+
         def low(self):
             return self[0]
 
