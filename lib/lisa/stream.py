@@ -26,7 +26,7 @@ class Stream(object):
         Representation of a stream's endpoint.
         '''
         def __init__(self):
-            Queue.__init__(self, 1)
+            Queue.__init__(self, 100)
             self._queue = None
             self._recv_buffer = []
             self._send_buffer = []
