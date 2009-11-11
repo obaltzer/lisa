@@ -1,9 +1,9 @@
 import sys
-import logging
+import os
 import time
 
 # Setup the package search path.
-sys.path.insert(0, '../lib')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
 from threading import Thread
 try:
@@ -27,23 +27,33 @@ from lisa.info import ThreadInfo
 
 tracks = int(sys.argv[1])
 
-log = logging.getLogger('main')
-log.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-log.addHandler(ch)
+#query = Geometry(Polygon((
+#    (-93.88, 49.81), 
+#    (-65.39, 49.81), 
+#    (-65.39, 24.22),
+#    (-93.88, 24.22)
+#)))
+
+tl, br = sys.argv[2].split(':')
+tx, ty = [float(x) for x in tl.split(',')]
+bx, by = [float(x) for x in br.split(',')]
 
 query = Geometry(Polygon((
-    (-93.88, 49.81), 
-    (-65.39, 49.81), 
-    (-65.39, 24.22),
-    (-93.88, 24.22)
+    (tx, ty),
+    (bx, ty),
+    (bx, by),
+    (tx, by)
 )))
 
-states_file = 'data/spatial/states'
-counties_file = 'data/spatial/counties'
-zip_file = 'data/spatial/zip5'
-cover_file = 'data/spatial/lulc'
+states_file = sys.argv[3]
+counties_file = sys.argv[4]
+zip_file = sys.argv[5]
+cover_file = sys.argv[6]
+
+#states_file = 'data/spatial/states'
+#counties_file = 'data/spatial/counties'
+#zip_file = 'data/spatial/zip5'
+#cover_file = 'data/spatial/' + sys.argv[2]
 
 #############################################################
 #
@@ -749,9 +759,6 @@ for t in threads:
 
 for t in threads:
     t.join()
-    log.info('Done %s' % (t))
-
-log.info('All threads are done.')
 
 infos = {}
 while not info_queue.empty():
