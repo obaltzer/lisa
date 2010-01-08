@@ -1,13 +1,10 @@
 import os
-try:
-    from threading import current_thread
-except:
-    from threading import currentThread as current_thread
+from multiprocessing import current_process
 
 class ThreadInfo(object):
     def __init__(self):
         self._info = {
-            'name': current_thread().getName(),
+            'name': current_process().getName(),
             'pid': os.getpid(),
         }
         try:

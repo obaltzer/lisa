@@ -1,8 +1,5 @@
 import sqlite3
-try:
-    from threading import current_thread
-except:
-    from threading import currentThread as current_thread
+from multiprocessing import current_process
 
 from types import Geometry
 from schema import Schema, Attribute
@@ -52,7 +49,7 @@ class DBTable(DataSource):
         self._schema = schema
         self._table = table
         self._database = database
-        self._thread_conn = {}
+        self._process_conn = {}
         self._conn = None
 
     def _verify_schema(self):
@@ -72,13 +69,13 @@ class DBTable(DataSource):
             cursor.close()
 
     def _setup(self):
-        if current_thread() not in self._thread_conn:
-            self._thread_conn[current_thread()] = \
+        if current_process() not in self._process_conn:
+            self._process_conn[current_process()] = \
                 sqlite3.connect(self._database)
-            self._conn = self._thread_conn[current_thread()]
+            self._conn = self._process_conn[current_process()]
             self._verify_schema()
         else:
-            self._conn = self._thread_conn[current_thread()]
+            self._conn = self._process_conn[current_process()]
         
     def __iter__(self):
         self._setup()

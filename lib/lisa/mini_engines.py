@@ -1,10 +1,9 @@
 import os
 
-from threading import Event
-
 from types import StopWord
 from stream import Stream, SortOrder, StreamClosedException
-from Queue import Queue, Empty
+from multiprocessing import Queue
+from Queue import Empty
 from schema import Schema
 
 class MiniEngine(object):

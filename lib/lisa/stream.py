@@ -1,10 +1,5 @@
-from Queue import Queue
-from threading import Lock
-
-try:
-    from threading import current_thread
-except:
-    from threading import currentThread as current_thread
+from multiprocessing import Queue
+from multiprocessing import Lock
 
 from schema import Schema
 

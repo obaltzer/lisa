@@ -1,17 +1,15 @@
 import sys
 import logging
 import time
+import os
 
 # Setup the package search path.
-sys.path.insert(0, '../lib')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
-from threading import Thread
-try:
-    from threading import current_thread
-except:
-    from threading import currentThread as current_thread
+from multiprocessing import Process
+from multiprocessing import current_process
 
-from Queue import Queue
+from multiprocessing import Queue
 from shapely.geometry import Polygon
 
 from lisa.schema import Schema, Attribute
@@ -33,17 +31,30 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 log.addHandler(ch)
 
+#query = Geometry(Polygon((
+#    (-93.88, 49.81), 
+#    (-65.39, 49.81), 
+#    (-65.39, 24.22),
+#    (-93.88, 24.22)
+#)))
+
 query = Geometry(Polygon((
-    (-93.88, 49.81), 
-    (-65.39, 49.81), 
-    (-65.39, 24.22),
-    (-93.88, 24.22)
+    (0.0, 0.0), 
+    (0.0, 1.0), 
+    (1.0, 1.0),
+    (1.0, 0.0)
 )))
 
-states_file = 'data/spatial/states'
-counties_file = 'data/spatial/counties'
-zip_file = 'data/spatial/zip5'
-cover_file = 'data/spatial/lulc'
+
+#states_file = 'states'
+#counties_file = 'counties'
+#zip_file = 'zip5'
+#cover_file = 'lulc'
+
+states_file = sys.argv[2]
+counties_file = sys.argv[3]
+zip_file = sys.argv[4]
+cover_file = sys.argv[5]
 
 #############################################################
 #
@@ -737,7 +748,7 @@ tasks += [(e.name, e) for e in engines]
 threads = []
 for t in tasks:
     threads.append(
-        Thread(
+        Process(
             target = manage, 
             name = t[0], 
             args = (t[1],)
