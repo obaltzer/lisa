@@ -2,5 +2,5 @@ BASE=`dirname $BASH_SOURCE`/..
 
 . $BASE/bin/activate
 
-export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib
+export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$VIRTUAL_ENV/lib/python2.6/site-packages/Rtree-0.4.3-py2.6-linux-x86_64.egg/rtree/
 

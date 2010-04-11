@@ -4,7 +4,7 @@ from multiprocessing import current_process
 class ThreadInfo(object):
     def __init__(self):
         self._info = {
-            'name': current_process().getName(),
+            'name': str(current_process()),
             'pid': os.getpid(),
         }
         try:

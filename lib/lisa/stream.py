@@ -1,7 +1,16 @@
-from multiprocessing import Queue
-from multiprocessing import Lock
+from multiprocessing.queues import JoinableQueue as Queue
+from Queue import Empty
+from multiprocessing import Lock, current_process
 
 from schema import Schema
+
+def end_point_counter_closure():
+    k = 0
+    while True:
+        k += 1
+        yield k
+
+end_point_counter = end_point_counter_closure().next
 
 class SortOrder(list):
     pass
@@ -9,58 +18,82 @@ class SortOrder(list):
 class StreamClosedException(Exception):
     pass
 
-class Stream(object):
-    '''
-    Representation of a record stream.
-    '''
-    class StreamEnd(object):
-        pass
+class StreamEnd(object):
+    pass
 
-    class EndPoint(Queue):
-        '''
-        Representation of a stream's endpoint.
-        '''
-        def __init__(self):
-            Queue.__init__(self, 1)
-            self._queue = None
-            self._recv_buffer = []
-            self._send_buffer = []
-            self._closed = False
-            
-        def receive(self, block = True):
-            if not self._recv_buffer:
-                self._recv_buffer = self.get(block)
-                self._recv_buffer.reverse()
-                self.task_done()
+class EndPoint(Queue):
+    '''
+    Representation of a stream's endpoint.
+    '''
+    def __init__(self):
+        Queue.__init__(self, 1)
+        self._closed = False
+        self._queue = None
+        self._name = end_point_counter()
 
-            o = self._recv_buffer.pop()
-            if type(o) is Stream.StreamEnd:
+    def name(self):
+        return self._name
+        
+    def receive(self, block = True):
+        try:
+            #print 'EndPoint[%04d : %d(%s)]: get enter' % (
+            #    self._name,
+            #    current_process().pid, 
+            #    str(current_process().name),
+            #)
+            o = self.get(block)
+            self.task_done()
+            # print 'EndPoint[%04d : %d(%s)]: get exit (%s)' % (
+            #    self._name, 
+            #    current_process().pid, 
+            #    str(current_process().name),
+            #    str(o)
+            #)
+        
+            if type(o) is StreamEnd:
+                #print 'EndPoint[%04d : %d(%s)]: closing stream' % (
+                #    self._name, 
+                #    current_process().pid,
+                #    str(current_process().name),
+                #)
                 self._closed = True
                 raise StreamClosedException
             else:
                 return o
+        except Empty:
+            #print 'EndPoint[%04d : %d(%s)]: get exit (EMPTY)' % (
+            #    self._name, 
+            #    current_process().pid, 
+            #    str(current_process().name),
+            #)
+            raise
 
-        def processed(self):
-            # self.task_done()
-            pass
+    def processed(self):
+        # self.task_done()
+        pass
 
-        def close(self):
-            self.send(Stream.StreamEnd(), True)
+    def close(self):
+        self.send(StreamEnd(), True)
 
-        def closed(self):
-            return self._closed
- 
-        def send(self, o, flush = False):
-            self._send_buffer.append(o)
+    def closed(self):
+        return self._closed
 
-            if len(self._send_buffer) >= 100 or flush:
-                self.put(self._send_buffer)
-                if self._queue:
-                    self._queue.put(self)
-                self._send_buffer = []
+    def send(self, o, flush = False):
+        #print 'EndPoint[%04d : %d]: put enter (%s)' % (self._name, current_process().pid, str(o))
+        self.put(o)
+        #print 'EndPoint[%04d : %d]: put exit' % (self._name, current_process().pid)
+        if self._queue:
+            #print 'EndPoint[%04d : %d]: notify put enter' % (self._name, current_process().pid)
+            self._queue.put(self._name)
+            #print 'EndPoint[%04d : %d]: notify put exit' % (self._name, current_process().pid)
 
-        def notify(self, queue):
-            self._queue = queue
+    def notify(self, queue):
+        self._queue = queue
+
+class Stream(object):
+    '''
+    Representation of a record stream.
+    '''
 
     def __init__(self, schema, sort_order, name = None):
         self._endpoints = list()
@@ -69,7 +102,7 @@ class Stream(object):
         self._name = name
             
     def connect(self):
-        c = self.EndPoint()
+        c = EndPoint()
         self._endpoints.append(c)
         return c
 
@@ -120,6 +153,7 @@ class Demux(object):
             self._queue.task_done()
 
         def send(self, r):
+            print '---------> %s' % (type(r))
             self._queue.put(r)
     
     class Channel(object):
