@@ -1,4 +1,4 @@
-tracks="6 8"
+tracks="1 2 4 6 8"
 runs=1
 results=q5.txt
 sequence=0

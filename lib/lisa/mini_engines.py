@@ -130,7 +130,7 @@ class ResultStack(MiniEngine):
     def __init__(self, *streams):
         MiniEngine.__init__(self)
         self._streams = streams
-        self._queue = Queue(1)
+        self._queue = Queue(100)
         print 'Output schemas:'
         for s in self._streams:
             print ', '.join([a.name() for a in s.schema()])
@@ -194,7 +194,7 @@ class ResultFile(MiniEngine):
             import sys
             self._f = sys.stdout
         self._streams = streams
-        self._queue = Queue(1)
+        self._queue = Queue(100)
         # print 'Output schemas:'
         for s in self._streams:
             print ', '.join([a.name() for a in s.schema()])
@@ -306,7 +306,7 @@ class Mux(MiniEngine):
         if not streams:
             raise Exception('Mux: must specify at least one stream.')
         self._streams = streams
-        self._queue = Queue(1)
+        self._queue = Queue(100)
         self._stats = {}
         self._ep_st = dict([(s.connect(), s) for s in self._streams])
         self._ep = dict([(ep.name(), ep) for ep in self._ep_st.keys()])
@@ -568,7 +568,7 @@ class Join(MiniEngine):
         for a in self._first.schema() + self._second.schema():
             self._schema.append(a)
 
-        self._queue = Queue(1)
+        self._queue = Queue(100)
         
         self._first_ep = self._first.connect()
         self._first_ep.notify(self._queue)
