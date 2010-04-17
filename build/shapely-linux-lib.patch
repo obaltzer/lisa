@@ -1,0 +1,14 @@
+diff -urNad Shapely-1.2b6/shapely/geos.py Shapely-1.2b6.mine/shapely/geos.py
+--- Shapely-1.2b6/shapely/geos.py	2010-03-18 11:19:58.000000000 +0000
++++ Shapely-1.2b6.mine/shapely/geos.py	2010-04-17 17:06:50.000000000 +0000
+@@ -26,8 +26,8 @@
+ # If this ever gets any longer, we'll break it into separate modules
+ 
+ if sys.platform == 'linux2':
+-    _lgeos = CDLL(find_library('geos_c'))
+-    free = CDLL(find_library('c')).free
++    _lgeos = CDLL('libgeos_c.so')
++    free = CDLL('libc.so.6').free
+     free.argtypes = [c_void_p]
+     free.restype = None
+ 
