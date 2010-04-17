@@ -3,6 +3,7 @@ from Queue import Empty
 from multiprocessing import Lock, current_process
 
 from schema import Schema
+import logging
 
 def end_point_counter_closure():
     k = 0
@@ -30,42 +31,43 @@ class EndPoint(Queue):
         self._closed = False
         self._queue = None
         self._name = end_point_counter()
+        self.log = logging.getLogger('EndPoint[%04d]' % (self._name))
+        self.log.info('EndPoint initialized.')
 
     def name(self):
         return self._name
         
     def receive(self, block = True):
         try:
-            #print 'EndPoint[%04d : %d(%s)]: get enter' % (
-            #    self._name,
-            #    current_process().pid, 
-            #    str(current_process().name),
-            #)
+            self.log.debug('[%5d(%-20s)]: get enter' % (
+                current_process().pid, 
+                str(current_process().name),
+            ))
             o = self.get(block)
             self.task_done()
-            # print 'EndPoint[%04d : %d(%s)]: get exit (%s)' % (
-            #    self._name, 
-            #    current_process().pid, 
-            #    str(current_process().name),
-            #    str(o)
-            #)
+            self.log.debug('[%5d(%-20s)]: get exit' % (
+                current_process().pid, 
+                str(current_process().name),
+            ))
         
             if type(o) is StreamEnd:
-                #print 'EndPoint[%04d : %d(%s)]: closing stream' % (
-                #    self._name, 
-                #    current_process().pid,
-                #    str(current_process().name),
-                #)
+                self.log.debug('[%5d(%-20s)]: closing stream' % (
+                    current_process().pid,
+                    str(current_process().name),
+                ))
                 self._closed = True
                 raise StreamClosedException
             else:
+                self.log.debug('[%5d(%-20s)]: return' % (
+                    current_process().pid,
+                    str(current_process().name),
+                ))
                 return o
         except Empty:
-            #print 'EndPoint[%04d : %d(%s)]: get exit (EMPTY)' % (
-            #    self._name, 
-            #    current_process().pid, 
-            #    str(current_process().name),
-            #)
+            self.log.debug('[%5d(%-20s)]: get exit (EMPTY)' % (
+                current_process().pid, 
+                str(current_process().name),
+            ))
             raise
 
     def processed(self):
@@ -79,15 +81,31 @@ class EndPoint(Queue):
         return self._closed
 
     def send(self, o, flush = False):
-        #print 'EndPoint[%04d : %d]: put enter (%s)' % (self._name, current_process().pid, str(o))
+        self.log.debug('[%5d(%-20s)]: put enter' % (
+            current_process().pid,
+            str(current_process().name)
+        ))
         self.put(o)
-        #print 'EndPoint[%04d : %d]: put exit' % (self._name, current_process().pid)
+        self.log.debug('[%5d(%-20s)]: put exit' % (
+            current_process().pid,
+            str(current_process().name)
+        ))
         if self._queue:
-            #print 'EndPoint[%04d : %d]: notify put enter' % (self._name, current_process().pid)
+            self.log.debug('[%5d(%-20s)]: notify put enter' % (
+                current_process().pid,
+                str(current_process().name)
+            ))
             self._queue.put(self._name)
-            #print 'EndPoint[%04d : %d]: notify put exit' % (self._name, current_process().pid)
+            self.log.debug('[%5d(%-20s)]: notify put exit' % (
+                current_process().pid,
+                str(current_process().name)
+            ))
 
     def notify(self, queue):
+        self.log.debug('[%5d(%-20s)]: setting notification queue' % (
+            current_process().pid,
+            str(current_process().name),
+        ))
         self._queue = queue
 
 class Stream(object):
@@ -139,14 +157,14 @@ class Demux(object):
         def receive(self, block = True):
             try:
                 if self._queue.empty():
-#                    print 'Updating for end point: [%d]' % (self._i)
+                    print 'Updating for end point: [%d]' % (self._i)
                     self._channel._update(self._i)
             except StreamClosedException:
                 if self._queue.empty():
                     raise
                 else:
                     pass
-#            print 'Returning for end point: [%d]' % (self._i)
+            print 'Returning for end point: [%d]' % (self._i)
             return self._queue.get()
 
         def processed(self):
@@ -176,20 +194,20 @@ class Demux(object):
             return c
         
         def _update(self, ep = -1):
-#            print '\t%s: update called' % (ep)
+            print '\t%s: update called' % (ep)
             self._lock.acquire()
-#            print '\t%s: lock acquired' % (ep) 
+            print '\t%s: lock acquired' % (ep) 
             if self._closed:
-#                print '\t%s: stream closed' % (ep)
+                print '\t%s: stream closed' % (ep)
                 self._lock.release()
-#                print '\t%s: lock released' % (ep)
+                print '\t%s: lock released' % (ep)
                 raise StreamClosedException
             try:
-#                print '\t%s: trying receive' % (ep)
+                print '\t%s: trying receive' % (ep)
                 r = self._demux._receive()
-#                print '\t%s: record received' % (ep)
+                print '\t%s: record received' % (ep)
                 for e in self._ep:
-#                    print '\t%s: sending to ep: %s' % (ep, e._i)
+                    print '\t%s: sending to ep: %s' % (ep, e._i)
                     e.send(r)
             except StreamClosedException:
                 self._closed = True
@@ -226,14 +244,21 @@ class Demux(object):
         return c
 
     def _receive(self, block = True):
+        print 'Demux: receive called'
         self._lock.acquire()
+        print 'Demux: lock acquired'
         if self._closed:
+            print 'Demux: stream closed...throw exception'
             self._lock.release()
             raise StreamClosedException
         try:
-            return self._ep.receive(block)
+            print 'Demux: calling endpoint receive'
+            v = self._ep.receive(block)
+            print 'Demux: receive complete'
+            return v
         except StreamClosedException:
             self._closed = True
             raise
         finally:
+            print 'Demux: releasing lock'
             self._lock.release()
