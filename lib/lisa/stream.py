@@ -26,8 +26,8 @@ class EndPoint(Queue):
     '''
     Representation of a stream's endpoint.
     '''
-    def __init__(self):
-        Queue.__init__(self, 1)
+    def __init__(self, size = 1):
+        Queue.__init__(self, size)
         self._closed = False
         self._queue = None
         self._name = end_point_counter()
@@ -38,6 +38,8 @@ class EndPoint(Queue):
         return self._name
         
     def receive(self, block = True):
+        if self._closed:
+            raise StreamClosedException
         try:
             self.log.debug('[%5d(%-20s)]: get enter' % (
                 current_process().pid, 
@@ -144,7 +146,7 @@ class Stream(object):
         else:
             return object.__repr__(self)
 
-class Demux(object):
+class DemuxStream(object):
     class EndPoint(object):
         '''
         Representation of a stream's endpoint.
@@ -197,6 +199,7 @@ class Demux(object):
             print '\t%s: update called' % (ep)
             self._lock.acquire()
             print '\t%s: lock acquired' % (ep) 
+            print '[%s] Channel status (closed = %s)' % (current_process().pid, self._closed)
             if self._closed:
                 print '\t%s: stream closed' % (ep)
                 self._lock.release()
@@ -211,8 +214,10 @@ class Demux(object):
                     e.send(r)
             except StreamClosedException:
                 self._closed = True
+                print '\t%s: closing' % (ep)
                 raise
             finally:
+                print '[%s] Channel status (closed = %s)' % (current_process().pid, self._closed)
                 self._lock.release()
 
 
@@ -235,8 +240,8 @@ class Demux(object):
     def close(self):
         raise Exception('close() is not implemented for a Demux stream.')
 
-    def __repr__(self):
-        return '<Demux: %s >' % (self._stream)
+#    def __repr__(self):
+#        return '<Demux: %s >' % (self._stream)
 
     def channel(self):
         c = self.Channel(self)
@@ -247,6 +252,8 @@ class Demux(object):
         print 'Demux: receive called'
         self._lock.acquire()
         print 'Demux: lock acquired'
+        print 'Demux[%s]: status (closed = %s)' % (str(self), self._closed)
+        print 'Demux[%s]: stream closed %s' % (str(self), self._closed)
         if self._closed:
             print 'Demux: stream closed...throw exception'
             self._lock.release()
@@ -258,7 +265,9 @@ class Demux(object):
             return v
         except StreamClosedException:
             self._closed = True
+            print 'Demux[%s]: stream was closed: %s' % (str(self), self._closed)
             raise
         finally:
             print 'Demux: releasing lock'
+            print 'Demux[%s]: status (closed = %s)' % (str(self), self._closed)
             self._lock.release()

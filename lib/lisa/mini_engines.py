@@ -1,16 +1,22 @@
+# vim: wrap
+
 import os
 
 from types import StopWord
-from stream import Stream, SortOrder, StreamClosedException
+from stream import Stream, SortOrder, StreamClosedException, \
+                   end_point_counter, EndPoint as BasicEndPoint
 from multiprocessing.queues import JoinableQueue as Queue
+from multiprocessing import current_process
 from Queue import Empty
 from schema import Schema
+
 
 import logging
 
 class MiniEngine(object):
     def __init__(self):
         self.name = str(self.__class__.__name__)
+        self.log = logging.getLogger(self.name)
         print 'Creating ME: %s' % (self.name)
         # maybe setup some logging here
         pass
@@ -123,9 +129,11 @@ class Generator(MiniEngine):
         return self._output_stream
 
     def run(self):
+        log = logging.getLogger('Generator %s' % (current_process().pid))
         for o in self._generator:
             self._output_stream.send((o,))
         self._output_stream.close()
+        log.info('Closing generator stream.')
 
 class ArrayStreamer(MiniEngine):
     def __init__(self, schema, data, sort_order = None):
@@ -256,10 +264,10 @@ class ResultFile(MiniEngine):
 
             valid = True
             closed = False
-            while valid and not closed:
-                # print '\t\t%s: receiving' % (self._endpoints[e])
+            if not closed:
+                self.log.debug('%s: receiving' % (e))
                 try:
-                    r = self._ep[e].receive(False)
+                    r = self._ep[e].receive(True)
                     if type(r) is not StopWord:
                         o = [
                             type(x) is float and ('%.8e' % x) or \
@@ -273,12 +281,13 @@ class ResultFile(MiniEngine):
                         pass
                     self._ep[e].processed()
                 except StreamClosedException:
-                    # print '\t\tReceive ClosedException.'
+                    self.log.debug('Received closed exception.')
                     closed = True
                 except:
                     valid = False
-                    # print '\t\tReceive failed.'
-            else:
+                    self.log.debug('Receive failed.')
+            
+            if closed:
                 if e in self._ep:
                     # print '%s: closed? %s' % (self._endpoints[e], e.closed())
                     if closed:
@@ -816,3 +825,323 @@ class Counter(MiniEngine):
                 closed = True
         print 'Closing COUNTER: %d record, %d stop words' % \
                 (self._r, self._s)
+
+class Limit(MiniEngine):
+    '''
+    The Limit mini-engine limits the number of records that are being
+    passed through it. It sends a StreamEnd message as soon as the limit is
+    reached and discards all subsequent records it receives until the
+    record source is depleted.
+    '''
+    def __init__(self, input, limit):
+        '''
+        If the specified limit is less than 0 not limit on the number of
+        records will be imposed.
+        '''
+        super(self.__class__, self).__init__()
+        self._input = input
+        self._input_end_point = self._input.connect()
+        self._limit = limit
+        
+        # The output stream into which the records will be written.
+        self._output_stream = Stream(
+            self._input.schema(),
+            self._input.sort_order(),
+            'LIMIT'
+        )
+        self.log.info('Initialization completed.')
+
+    def output(self):
+        return self._output_stream
+
+    def run(self):
+        # Number of records processed so far
+        count = 0
+        closed = False
+        output_done = False
+        while not closed:
+            try:
+                r = self._input_end_point.receive()
+                if self._limit < 0 or count < self._limit:
+                    self._output_stream.send(r)
+                    count += 1
+
+                self._input_end_point.processed()
+            except StreamClosedException:
+                closed = True
+
+            if not output_done and (count == self._limit or closed):
+                # close the output stream
+                self.log.debug(
+                    'Closing output stream after %d recrods.' % (count)
+                )
+                self._output_stream.close()
+                output_done = True
+
+        self.log.info('Processing completed.')
+
+class Channel(object):
+    '''
+    The Channel class encapsulates a single outgoing channel from the
+    Demux mini-engine. As such it transports a different
+    (complimentary) set of message compared to its sibling channels.
+    Each channel may have multiple consumers
+    '''
+    
+
+    class EndPoint(BasicEndPoint):
+        '''
+        An endpoint is a connection between a channel's source process
+        and one of the channel's consumer processes. Each channel may
+        have any number of endpoints. This endpoint implementation is
+        an extension to the basic endpoint implementation provided by
+        the stream implementation.
+        '''
+        def __init__(self, channel):
+            # Initialize the BasicEndPoint with a queue size of 10
+            super(self.__class__, self).__init__(1)
+            # Remember what channel we are associated with
+            self._channel = channel
+
+        def receive(self, block = True):
+            '''
+            Overwrite the BasicEndPoint's implementation of receive()
+            with one that also notifies the end point's channel that
+            the message has been received.
+            '''
+            try:
+                return super(self.__class__, self).receive(block)
+            finally:
+                # We do not need to notify if the endpoint is already
+                # closed
+                if not self._closed:
+                    self._channel.notify_demux()
+            
+    def __init__(self, demux, id):
+        self._demux = demux
+        self._id = id
+        self._end_points = []
+        # This member holds the number of outstanding notification the
+        # channel needs to receive before it can be considered as free.
+        self._outstanding = 0
+        self._closed = False
+
+    def connect(self):
+        '''
+        This method returns an endpoint that is being used by a
+        consumer process. It should consist of a queue, that is being
+        used by channel to send elements to the attached process.
+        
+        Executed in the Setup process.
+        '''
+        end_point = self.EndPoint(self)
+        self._end_points.append(end_point)
+        return end_point
+
+    def notify_demux(self):
+        '''
+        This method is called by the attached end-point when the
+        receiving process has consumed the element. It connects to the
+        Demux's engines notification queue and places this channels
+        reference (by ID) into the queue.
+        
+        Executed in the Consumer process.
+        '''
+        self._demux.notify_received_message(self._id)
+
+    def notify(self):
+        '''
+        This method is called by the Demux mini-engine to decrement
+        this channel's outstanding notifications counter. Only if the
+        outstanding notifications counter is 0 the channel is
+        considered to be free.
+
+        Executed in the Demux process.
+        '''
+        self._outstanding -= 1
+
+    def free(self):
+        '''
+        The free() method returns True if this channel no longer has
+        any outstanding notifications and thus can accept new messages.
+        
+        Executed in the Demux process.
+        '''
+        return self._outstanding == 0
+
+    def send(self, m):
+        '''
+        Sends the specified message to all end-points associated with
+        this channel and resets the notification counter to the number
+        of endpoints attached to the channel.
+
+        Executed in the Demux process.
+        '''
+        assert(m != None)
+        self._outstanding = len(self._end_points)
+        for end_point in self._end_points:
+            end_point.send(m)
+
+    def close(self):
+        '''
+        Closes the channel. This method is called by the Demux instance
+        that owns this channel and causes the channel to call the
+        close() method on each of the end points associated with it.
+        '''
+        for end_point in self._end_points:
+            end_point.close()
+        self._closed = True
+
+    def schema(self):
+        '''
+        Returns the schema of the Demux instance.
+        '''
+        return self._demux.schema()
+
+    def sort_order(self):
+        '''
+        Returns the sort order of the Demux instance.
+        '''
+        return self._demux.sort_order()
+
+class Demux(MiniEngine):
+    '''
+    The Demux mini-engine can be used to distribute (demultiplex) the
+    elements of a single incoming stream to multiple outgoing streams.
+
+    The process is implemented as follows:
+
+    1. The Demux waits for an element to arrive at the incoming end-point.
+
+    2. The Demux queries the internal non-shared queue for a channel that
+       is empty.
+
+    3. The Demux places the element into the channel. The channel in turn
+       iterates over its end-points an places the element into the
+       corresponding queues.
+
+    4. The Demux repeats step 1-3 for until there are no more empty
+       channels are available.
+
+    5. The Demux queries the channel end-point notification queue for
+       process completion notifications. For each received notification the
+       Demux decrements the notification counter associated with the
+       corresponding channel. If the channel becomes free the Demux
+       continues with step 1.
+
+    6. Once a stream end exception was received by the Demux engine, the
+       same message is sent to all channels as they are become free.
+
+    ------------------------------------------------------------------------
+
+    1. A channel consumer waits for an element to appear at its end-point.
+       Immediately of the element has been received the consumer signals
+       the channel (indirectly the Demux) that it has received the element.
+
+    2. See step 5 above.
+    '''
+
+    def __init__(self, input):
+        MiniEngine.__init__(self)
+        self._input = input
+        # The connection endpoint to the input stream
+        self._input_end_point = self._input.connect()
+        # The list of channels handled by the demux
+        self._channels = []
+        self._free_channels = []
+        # The queue of notifications that were received from the end points
+        # that are connected to each channel. All of these messages are
+        # kept in a single queue to avoid that we block when checking on
+        # one channel which other channels could already be processed.
+        self._received_messages = Queue(100)
+        self.log.debug('Initialization complete.')
+
+    def schema(self):
+        return self._input.schema()
+
+    def sort_order(self):
+        return self._input.sort_order()
+
+    def channel(self):
+        '''
+        The channel() method should return a stream object which allows the
+        consumer to setup a IPC queue between the Demux mini-engine and
+        itself.
+
+        This method is executed in the setup process.
+        '''
+        c = Channel(self, len(self._channels))
+        self._channels.append(c)
+        self._free_channels.append(c)
+        return c
+
+    def notify_received_message(self, channel):
+        '''
+        This method is called to notify the Demux process of a message that
+        was received by a channel's end point. We collect all these
+        notifications in a single queue to avoid blocking on some channels
+        while other channels can already be processed.
+
+        This method is executed in the message consumer process.
+        '''
+        self._received_messages.put(channel)
+
+    def run(self):
+        closed = False
+        while not closed:
+            try:
+                self.log.debug('Waiting for input message.')
+                m = self._input_end_point.receive()
+                self.log.debug('Input message received.')
+                # Get a free channel
+                c = self._free_channels.pop(0)
+                self.log.debug('Got free channel [%s].' % (c))
+                # Write message to the channel
+                assert(m != None)
+                c.send(m)
+                self.log.debug('Delivered message to channel [%s].' % (c))
+                self._input_end_point.processed()
+
+                # Check if there are more free channels, if not wait for
+                # a channel to become available.
+                while not self._free_channels:
+                    self.log.debug('Waiting for channel to become free.')
+                    c = self._received_messages.get()
+                    self.log.debug('Channel[%s] received a message.' % (c))
+                    self._channels[c].notify()
+                    if self._channels[c].free():
+                        self.log.debug(
+                            'Channel[%s] has become free.' % (c)
+                        )
+                        self._free_channels.append(self._channels[c])
+                    self._received_messages.task_done()
+            except StreamClosedException:
+                closed = True
+        
+        self.log.debug('Input stream is complete.')
+        # The input stream is done. Now wait until all channels report back
+        # that they are free and all messages have been processed.
+        self.log.debug('Waiting for all channels to become free.')
+        self.log.debug('Total Channels: %d, Free Channels: %d' % (
+            len(self._channels),
+            len(self._free_channels)
+        ))
+
+        while len(self._free_channels) != len(self._channels) or \
+                not self._received_messages.empty():
+            c = self._received_messages.get()
+            self._channels[c].notify()
+            if self._channels[c].free():
+                self._free_channels.append(self._channels[c])
+        
+        self.log.debug('Total Channels: %d, Free Channels: %d' % (
+            len(self._channels),
+            len(self._free_channels)
+        ))
+
+        self.log.debug('Sending closing instruction to each channel.')
+        # Close each channel.
+        for c in self._channels:
+            c.close()
+
+        self.log.info('Process completed.')
