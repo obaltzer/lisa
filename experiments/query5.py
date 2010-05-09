@@ -44,24 +44,6 @@ bx, by = [float(x) for x in br.split(',')]
 #)))
 
 query = Geometry(Polygon((
-<<<<<<< HEAD:experiments/query5.py
-    (0.0, 0.0), 
-    (0.0, 1.0), 
-    (1.0, 1.0),
-    (1.0, 0.0)
-)))
-
-
-#states_file = 'states'
-#counties_file = 'counties'
-#zip_file = 'zip5'
-#cover_file = 'lulc'
-
-states_file = sys.argv[2]
-counties_file = sys.argv[3]
-zip_file = sys.argv[4]
-cover_file = sys.argv[5]
-=======
     (tx, ty),
     (bx, ty),
     (bx, by),
@@ -77,7 +59,6 @@ cover_file = sys.argv[6]
 #counties_file = 'data/spatial/counties'
 #zip_file = 'data/spatial/zip5'
 #cover_file = 'data/spatial/' + sys.argv[2]
->>>>>>> master:experiments/query5.py
 
 #############################################################
 #
