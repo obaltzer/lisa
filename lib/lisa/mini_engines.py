@@ -226,7 +226,7 @@ class ResultStack(MiniEngine):
                 else:
                     self.log.debug('%s: already removed' % (e))
                     pass
-            self._queue.task_done()
+            # self._queue.task_done()
         self.log.info('All streams done.')
         self.log.info('Received %d record.' % (c))
         self.log.info('ResultStack: done.')
@@ -296,7 +296,7 @@ class ResultFile(MiniEngine):
                 else:
                     # print '%s: already removed' % (e)
                     pass
-            self._queue.task_done()
+            # self._queue.task_done()
         # print '\t\tAll streams done.'
         # print '\t\tResultFile: Received %d record.' % (c)
         self._f.close()
@@ -416,7 +416,7 @@ class Mux(MiniEngine):
                 else:
                     # print '%s: already removed' % (e)
                     pass
-            self._queue.task_done()
+            # self._queue.task_done()
         #print '\t\tAll streams done.'
         self._output.close()
         # for e in self._stats:
@@ -716,7 +716,7 @@ class Join(MiniEngine):
                 done = True
                 for o in buffers:
                     done &= o.closed()
-            self._queue.task_done()
+            # self._queue.task_done()
         self._output.close()
         print 'Join done. %d empty buffers.' % (self._empty)
 
@@ -1114,7 +1114,7 @@ class Demux(MiniEngine):
                             'Channel[%s] has become free.' % (c)
                         )
                         self._free_channels.append(self._channels[c])
-                    self._received_messages.task_done()
+                    # self._received_messages.task_done()
             except StreamClosedException:
                 closed = True
         

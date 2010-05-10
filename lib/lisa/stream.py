@@ -46,7 +46,7 @@ class EndPoint(Queue):
                 str(current_process().name),
             ))
             o = self.get(block)
-            self.task_done()
+            # self.task_done()
             self.log.debug('[%5d(%-20s)]: get exit' % (
                 current_process().pid, 
                 str(current_process().name),

@@ -27,7 +27,7 @@ tracks = int(sys.argv[1])
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
-ch = logging.StreamHandler()
+ch = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
@@ -409,13 +409,13 @@ zip_select = Select(
 )
 engines.append(zip_select)
 
-limit = Limit(zip_select.output(), -1)
-engines.append(limit)
+#limit = Limit(zip_select.output(), -1)
+#engines.append(limit)
 
 zip_join = Join(
     counties_group.output(),
-#    zip_select.output()
-    limit.output()
+    zip_select.output(),
+#    limit.output(),
 )
 engines.append(zip_join)
 
@@ -469,7 +469,6 @@ zip_filter = Filter(
     )
 )
 engines.append(zip_filter)
-
 
 demux = Demux(zip_filter.output())
 engines.append(demux)
@@ -709,52 +708,52 @@ states_level_aggregate = Aggregate(
 )
 engines.append(states_level_aggregate)
 
+
+############################################################
 #
-##############################################################
-##
-## 4th level aggregation
-##
-##############################################################
+# 4th level aggregation
 #
-## all_level_select = Select(
-##     counties_level_aggregate.output(),
-##     UniversalSelect(
-##         counties_level_aggregate.output().schema(),
-##         {
-##             'area': {
-##                 'type': float,
-##                 'args': ['area'],
-##                 'function': lambda v: v,
-##             },
-##         }
-##     )
-## )
-## engines.append(all_level_select)
-## 
-## all_level_group = Group(
-##     all_level_select.output(),
-##     {}
-## )
-## engines.append(all_level_group)
-## 
-## all_level_aggregate = Aggregate(
-##     all_level_group.output(),
-##     SumAggregator(all_level_group.output().schema(), 'area')
-## )
-## engines.append(all_level_aggregate)
+############################################################
+
+all_level_select = Select(
+    counties_level_aggregate.output(),
+    UniversalSelect(
+        counties_level_aggregate.output().schema(),
+        {
+            'area': {
+                'type': float,
+                'args': ['area'],
+                'function': lambda v: v,
+            },
+        }
+    )
+)
+engines.append(all_level_select)
+
+all_level_group = Group(
+    all_level_select.output(),
+    {}
+)
+engines.append(all_level_group)
+
+all_level_aggregate = Aggregate(
+    all_level_group.output(),
+    SumAggregator(all_level_group.output().schema(), 'area')
+)
+engines.append(all_level_aggregate)
+
+############################################################
 #
-##############################################################
-##
-##  Output
-##
-##############################################################
+#  Output
 #
+############################################################
+
 result_file = ResultFile(
     'results.txt',
     mux.output(),
     counties_level_aggregate.output(),
     states_level_aggregate.output(),
-#    all_level_aggregate.output()
+    all_level_aggregate.output()
 )
 engines.append(result_file)
 
@@ -765,13 +764,9 @@ engines.append(result_file)
 #)
 #engines.append(result_stack)
 
-#
-# info_queue = Queue()
-
 def manage(name, task):
     print '%s: %s' % (name, str(current_process().pid))
     task.run()
-    # info_queue.put((task, ThreadInfo()))
 
 tasks = []
 tasks += [(e.name, e) for e in engines]
@@ -796,12 +791,5 @@ for t in threads:
 log.info('All threads are done.')
 
 infos = {}
-#while not info_queue.empty():
-#    t, i = info_queue.get()
-#    infos[t] = i
-#    info_queue.task_done()
-
-#for name, task in tasks:
-#    print infos[task]
 
 sys.stderr.write('%d,%d\n' % (tracks, len(threads)))
