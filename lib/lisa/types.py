@@ -2,28 +2,29 @@ from shapely import wkb
 
 class StopWord(object):
     pass
+    
+class IntervalInstance(tuple):
+    def contains(self, other):
+        return self[0] <= other < self[1]
+
+    def intersects(self, other):
+        return self[0] <= other < self[1]
+
+    def low(self):
+        return self[0]
+
+    def high(self):
+        return self[1]
+
 
 class Interval(object):
-    class Instance(tuple):
-        def contains(self, other):
-            return self[0] <= other < self[1]
-
-        def intersects(self, other):
-            return self[0] <= other < self[1]
-
-        def low(self):
-            return self[0]
-
-        def high(self):
-            return self[1]
-
     def __init__(self, base):
         if not (hasattr(base, '__lt__') or base is int or base is float):
             raise Exception, 'Base type must provide an order.'
         self._base = base
 
     def __call__(self, *args):
-        return self.Instance(args)
+        return IntervalInstance(args)
 
     def __eq__(self, other):
         return other == self._base

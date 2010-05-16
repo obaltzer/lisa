@@ -1,5 +1,5 @@
 import sys
-import os
+import logging
 import time
 import os
 
@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 from multiprocessing import Process
 from multiprocessing import current_process
 
-from multiprocessing import Queue
+from multiprocessing import JoinableQueue as Queue
 from shapely.geometry import Polygon
 
 from lisa.schema import Schema, Attribute
@@ -18,47 +18,47 @@ from lisa.access_methods import FindIdentities, FindRange
 from lisa.types import IntInterval, Geometry, StopWord
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate, ResultFile, Counter, Sort
-from lisa.stream import Demux
+                              Aggregate, ResultFile, Counter, Sort, \
+                              Demux, Limit
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
 
 tracks = int(sys.argv[1])
 
-#query = Geometry(Polygon((
-#    (-93.88, 49.81), 
-#    (-65.39, 49.81), 
-#    (-65.39, 24.22),
-#    (-93.88, 24.22)
-#)))
-
-tl, br = sys.argv[2].split(':')
-tx, ty = [float(x) for x in tl.split(',')]
-bx, by = [float(x) for x in br.split(',')]
-
-#query = Geometry(Polygon((
-#    (-93.88, 49.81), 
-#    (-65.39, 49.81), 
-#    (-65.39, 24.22),
-#    (-93.88, 24.22)
-#)))
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
+log.addHandler(ch)
 
 query = Geometry(Polygon((
-    (tx, ty),
-    (bx, ty),
-    (bx, by),
-    (tx, by)
+    (-93.88, 49.81), 
+    (-65.39, 49.81), 
+    (-65.39, 24.22),
+    (-93.88, 24.22)
 )))
 
-states_file = sys.argv[3]
-counties_file = sys.argv[4]
-zip_file = sys.argv[5]
-cover_file = sys.argv[6]
+#query = Geometry(Polygon((
+#    (0.0, 0.0), 
+#    (0.0, 1.0), 
+#    (1.0, 1.0),
+#    (1.0, 0.0)
+#)))
 
-#states_file = 'data/spatial/states'
-#counties_file = 'data/spatial/counties'
-#zip_file = 'data/spatial/zip5'
-#cover_file = 'data/spatial/' + sys.argv[2]
+
+#states_file = 'states'
+#counties_file = 'counties'
+#zip_file = 'zip5'
+#cover_file = 'lulc'
+
+states_file = sys.argv[2]
+counties_file = sys.argv[3]
+zip_file = sys.argv[4]
+cover_file = sys.argv[5]
 
 #############################################################
 #
@@ -181,6 +181,15 @@ states_query = Select(
 )
 engines.append(states_query)
 
+#query_schema = Schema()
+#query_schema.append(Attribute('states.geom', Geometry))
+# The query stream contains only a single query box.
+#query_streamer = ArrayStreamer(query_schema, [
+#        (query,),
+#        StopWord(),
+#])
+#engines.append(query_streamer)
+
 states_source = Rtree(states_file, 'states.geom')
 states_accessor = DataAccessor(
     states_query.output(),
@@ -209,12 +218,14 @@ states_select = Select(
 )
 engines.append(states_select)
 
+# join input query stream with the selected states
 states_join = Join(
     query_streamer.output(),
     states_select.output()
 )
 engines.append(states_join)
 
+# trim the states to the boundary of the query
 states_trim = Select(
     states_join.output(),
     UniversalSelect(
@@ -235,6 +246,7 @@ states_trim = Select(
 )
 engines.append(states_trim)
 
+# group states by state ID
 states_group = Group(
     states_trim.output(),
     {
@@ -399,7 +411,7 @@ engines.append(zip_select)
 
 zip_join = Join(
     counties_group.output(),
-    zip_select.output()
+    zip_select.output(),
 )
 engines.append(zip_join)
 
@@ -455,11 +467,11 @@ zip_filter = Filter(
 engines.append(zip_filter)
 
 demux = Demux(zip_filter.output())
-
+engines.append(demux)
 mux_streams = []
 for i in range(tracks):
     channel = demux.channel()
-    
+
     zip_group = Group(
         channel,
         {
@@ -469,7 +481,7 @@ for i in range(tracks):
         }
     )
     engines.append(zip_group)
-    
+
     cover_query = Select(
         channel,
         UniversalSelect(
@@ -507,7 +519,7 @@ for i in range(tracks):
         )
     )
     engines.append(cover_select)
-    
+
     cover_join = Join(
         zip_group.output(),
         cover_select.output(),
@@ -561,11 +573,11 @@ for i in range(tracks):
     )
     engines.append(cover_area)
 
-#############################################################
-#
-# 1st level aggregation
-#
-#############################################################
+    #############################################################
+    #
+    # 1st level aggregation
+    #
+    #############################################################
 
     cover_aggregate = Aggregate(
         cover_area.output(),
@@ -692,59 +704,65 @@ states_level_aggregate = Aggregate(
 )
 engines.append(states_level_aggregate)
 
-#############################################################
+
+############################################################
 #
 # 4th level aggregation
 #
-#############################################################
+############################################################
 
-# all_level_select = Select(
-#     counties_level_aggregate.output(),
-#     UniversalSelect(
-#         counties_level_aggregate.output().schema(),
-#         {
-#             'area': {
-#                 'type': float,
-#                 'args': ['area'],
-#                 'function': lambda v: v,
-#             },
-#         }
-#     )
-# )
-# engines.append(all_level_select)
-# 
-# all_level_group = Group(
-#     all_level_select.output(),
-#     {}
-# )
-# engines.append(all_level_group)
-# 
-# all_level_aggregate = Aggregate(
-#     all_level_group.output(),
-#     SumAggregator(all_level_group.output().schema(), 'area')
-# )
-# engines.append(all_level_aggregate)
+all_level_select = Select(
+    counties_level_aggregate.output(),
+    UniversalSelect(
+        counties_level_aggregate.output().schema(),
+        {
+            'area': {
+                'type': float,
+                'args': ['area'],
+                'function': lambda v: v,
+            },
+        }
+    )
+)
+engines.append(all_level_select)
 
-#############################################################
+all_level_group = Group(
+    all_level_select.output(),
+    {}
+)
+engines.append(all_level_group)
+
+all_level_aggregate = Aggregate(
+    all_level_group.output(),
+    SumAggregator(all_level_group.output().schema(), 'area')
+)
+engines.append(all_level_aggregate)
+
+############################################################
 #
 #  Output
 #
-#############################################################
+############################################################
 
-result_stack = ResultFile(
+result_file = ResultFile(
     'results.txt',
     mux.output(),
     counties_level_aggregate.output(),
     states_level_aggregate.output(),
-#    all_level_aggregate.output()
+    all_level_aggregate.output()
 )
-engines.append(result_stack)
+engines.append(result_file)
 
-info_queue = Queue()
+#result_stack = ResultStack(
+#    mux.output(),
+#    counties_level_aggregate.output(),
+#    states_level_aggregate.output(),
+#)
+#engines.append(result_stack)
 
-def manage(task):
+def manage(name, task):
+    print '%s: %s' % (name, str(current_process().pid))
     task.run()
-    info_queue.put((task, ThreadInfo()))
 
 tasks = []
 tasks += [(e.name, e) for e in engines]
@@ -755,7 +773,7 @@ for t in tasks:
         Process(
             target = manage, 
             name = t[0], 
-            args = (t[1],)
+            args = (t[0], t[1],)
         )
     )
 
@@ -764,14 +782,8 @@ for t in threads:
 
 for t in threads:
     t.join()
+    log.info('Done %s' % (t))
 
-infos = {}
-while not info_queue.empty():
-    t, i = info_queue.get()
-    infos[t] = i
-    info_queue.task_done()
-
-for name, task in tasks:
-    print infos[task]
+log.info('All threads are done.')
 
 sys.stderr.write('%d,%d\n' % (tracks, len(threads)))

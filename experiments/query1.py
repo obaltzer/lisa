@@ -1,24 +1,39 @@
 import sys
+import logging
+import time
+import os
 
 # Setup the package search path.
-sys.path.insert(0, '../lib')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
-from threading import Thread, current_thread
-from Queue import Queue
+from multiprocessing import Process
+from multiprocessing import current_process
+
+from multiprocessing import JoinableQueue as Queue
+from shapely.geometry import Polygon
 
 from lisa.schema import Schema, Attribute
 from lisa.data_source import DBTable
 from lisa.access_methods import FindIdentities, FindRange
-from lisa.types import IntInterval
+from lisa.types import IntInterval, Geometry, StopWord
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate, ResultFile
-from lisa.stream import Demux
+                              Aggregate, ResultFile, Counter, Sort, \
+                              Demux, Limit
 from lisa.util import UniversalSelect
-from lisa.info import ThreadInfo
 
 tracks = int(sys.argv[1])
 input_file = sys.argv[2]
+
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
+log.addHandler(ch)
 
 #############################################################
 #
@@ -115,10 +130,12 @@ class MaxHeightAggregator(object):
         for i, c in enumerate(self._c):
             self._c[i] = self._af[i][1](c, r[i])
 
+engines = []
 # The query stream contains only a single query.
 query_streamer = ArrayStreamer(query_schema, [
         (IntInterval(0, int(1E10)),),
 ])
+engines.append(query_streamer)
 
 # Create a species data source: a  table in the input database.
 species_source = DBTable(input_file, 'species', species_schema)
@@ -128,10 +145,11 @@ species_accessor = DataAccessor(
     species_source,
     FindRange
 )
+engines.append(species_accessor)
 
 demux = Demux(species_accessor.output())
+engines.append(demux)
 
-engines = []
 mux_streams = []
 for i in range(tracks):
     channel = demux.channel()
@@ -200,38 +218,28 @@ for i in range(tracks):
     mux_streams.append(joiner.output())
 
 mux = Mux(*mux_streams)
+engines.append(mux)
 
-result_stack = ResultFile(
+result_file = ResultFile(
     'results.txt',
     mux.output(),
 )
+engines.append(result_file)
 
-info_queue = Queue()
-
-def manage(task):
-    print 'Running: ' + str(task)
+def manage(name, task):
+    print '%s: %s' % (name, str(current_process().pid))
     task.run()
-    info_queue.put(ThreadInfo())
 
 tasks = []
-
-tasks += [('engine', e) for e in engines]
-
-tasks += [
-    ('Query Streamer', query_streamer), 
-    ('Species Accessor', species_accessor),
-    ('Mux', mux),
-    ('Result Stack', result_stack),
-]
+tasks += [(e.name, e) for e in engines]
 
 threads = []
-
 for t in tasks:
     threads.append(
-        Thread(
+        Process(
             target = manage, 
             name = t[0], 
-            args = (t[1],)
+            args = (t[0], t[1],)
         )
     )
 
@@ -240,10 +248,8 @@ for t in threads:
 
 for t in threads:
     t.join()
+    log.info('Done %s' % (t))
 
-while not info_queue.empty():
-    i = info_queue.get()
-    print i
-    info_queue.task_done()
+log.info('All threads are done.')
 
 sys.stderr.write('%d,%d\n' % (tracks, len(threads)))
