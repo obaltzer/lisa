@@ -1,33 +1,38 @@
 import sys
 import logging
 import time
+import os
 
 # Setup the package search path.
-sys.path.insert(0, '../lib')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
-from threading import Thread, current_thread
-from Queue import Queue
+from multiprocessing import Process
+from multiprocessing import current_process
+
+from multiprocessing import JoinableQueue as Queue
 from shapely.geometry import Polygon
 
 from lisa.schema import Schema, Attribute
 from lisa.data_source import Rtree
 from lisa.access_methods import FindIdentities, FindRange
-from lisa.types import IntInterval, Geometry
+from lisa.types import IntInterval, Geometry, StopWord
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate, ResultFile, Counter
-from lisa.stream import Demux
+                              Aggregate, ResultFile, Counter, Sort, \
+                              Demux, Limit
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
 
-import lisa.sigint
-
 tracks = int(sys.argv[1])
 
-log = logging.getLogger('main')
-log.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
 log.addHandler(ch)
 
 query = Geometry(Polygon((
@@ -37,16 +42,16 @@ query = Geometry(Polygon((
     (-93.88, 24.22)
 )))
 
-counties_file = 'data/spatial/counties'
+counties_file = sys.argv[2]
 #geonames_file = 'data/spatial/geonames_medium'
-geonames_file = 'data/spatial/geonames'
+geonames_file = sys.argv[3]
 
 #############################################################
 #
 # Query 3
 #
 # SELECT counties.id, COUNT(geonames.*) FROM counties
-# LEFT JOIN geonames ON CONTAINS(counties.the_geom, geonames.location)
+# LEFT JOIN geonames ON CONTAINS(counties.geom, geonames.location)
 # WHERE 
 #   CONTAINS(
 #       MakeBox2D(
@@ -61,7 +66,7 @@ geonames_file = 'data/spatial/geonames'
 
 # Schema definition of the query stream: an interval across all counties.
 query_schema = Schema()
-query_schema.append(Attribute('counties.the_geom', Geometry))
+query_schema.append(Attribute('counties.geom', Geometry))
 
 # Aggregation function for max height.
 class SumAggregator(object):
@@ -110,7 +115,6 @@ class SumAggregator(object):
             self._c[i] = self._af[i][1](c, r[i])
 
 engines = []
-counters = []
 
 # The query stream contains only a single query box.
 query_streamer = ArrayStreamer(query_schema, [
@@ -118,8 +122,7 @@ query_streamer = ArrayStreamer(query_schema, [
 ])
 engines.append(query_streamer)
 
-counties_source = Rtree(counties_file, 'counties.the_geom')
-
+counties_source = Rtree(counties_file, 'counties.geom')
 counties_accessor = DataAccessor(
     query_streamer.output(),
     counties_source,
@@ -128,6 +131,7 @@ counties_accessor = DataAccessor(
 engines.append(counties_accessor)
 
 demux = Demux(counties_accessor.output())
+engines.append(demux)
 
 def intersection(a, b):
     g1 = a.geom()
@@ -140,15 +144,6 @@ def intersection(a, b):
             return None
     except:
         return None
-#    print i.wkt
-#    print 'Valid: %s' % (i.is_valid)
-#    print 'Area: %s' % (i.area)
-#    print 'Self: %s' % (i.__geom__)
-#    print 'WKT: %s' % (i.wkt)
-#    w = i.wkb
-#    print 'Got WKB'
-
-# Data source for geonames
 
 mux_streams = []
 for i in range(tracks):
@@ -163,7 +158,7 @@ for i in range(tracks):
             {
                 'geonames.location': {
                     'type': Geometry,
-                    'args': ['counties.the_geom'],
+                    'args': ['counties.geom'],
                     'function': lambda v: intersection(v, query),
                 }
             }
@@ -229,29 +224,19 @@ for i in range(tracks):
     joiner = Join(counties_grouper.output(), geonames_aggregate.output())
     engines.append(joiner)
     mux_streams.append(joiner.output())
-    # mux_streams.append(counties_select.output())
 
 mux = Mux(*mux_streams)
 engines.append(mux)
 
-result_stack = ResultFile(
-    'results.txt',
+result_file = ResultFile(
+    'query3-results.txt',
     mux.output(),
 )
-engines.append(result_stack)
+engines.append(result_file)
 
-#result_stack = ResultStack(
-#    mux.output(),
-#)
-#engines.append(result_stack)
-
-info_queue = Queue()
-
-def manage(task):
+def manage(name, task):
+    print '%s: %s' % (name, str(current_process().pid))
     task.run()
-    # print 'Task %s: completed' % (task.name)
-    info_queue.put((task, ThreadInfo()))
-    # print 'Task %s: info-queued.' % (task.name)
 
 tasks = []
 tasks += [(e.name, e) for e in engines]
@@ -259,43 +244,20 @@ tasks += [(e.name, e) for e in engines]
 threads = []
 for t in tasks:
     threads.append(
-        Thread(
+        Process(
             target = manage, 
             name = t[0], 
-            args = (t[1],)
+            args = (t[0], t[1],)
         )
     )
 
 for t in threads:
-    # t.daemon = True
     t.start()
 
-# done = False
-# while not done:
-#     done = True
-#     for t in threads:
-#         if t.is_alive():
-#             done &= False
-#             print '\t\t\tWaiting for: %s' % (t)
-#             t.join(0.2)
-#         else:
-#             print '\t\t\tThread %s: completed' % (t)
 for t in threads:
-    # log.info('Waiting for %s' % (t))
     t.join()
+    log.info('Done %s' % (t))
 
-# time.sleep(5)
-
-for c in counters:
-    print 'Counter: %d records, %d stop words' % c.stats()
-
-infos = {}
-while not info_queue.empty():
-    t, i = info_queue.get()
-    infos[t] = i
-    info_queue.task_done()
-
-for name, task in tasks:
-    print infos[task]
+log.info('All threads are done.')
 
 sys.stderr.write('%d,%d\n' % (tracks, len(threads)))

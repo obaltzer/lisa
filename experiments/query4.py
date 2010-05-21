@@ -1,31 +1,38 @@
 import sys
 import logging
 import time
+import os
 
 # Setup the package search path.
-sys.path.insert(0, '../lib')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
-from threading import Thread, current_thread
-from Queue import Queue
+from multiprocessing import Process
+from multiprocessing import current_process
+
+from multiprocessing import JoinableQueue as Queue
 from shapely.geometry import Polygon
 
 from lisa.schema import Schema, Attribute
 from lisa.data_source import Rtree
 from lisa.access_methods import FindIdentities, FindRange
-from lisa.types import IntInterval, Geometry
+from lisa.types import IntInterval, Geometry, StopWord
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate, ResultFile, Counter, Sort
-from lisa.stream import Demux
+                              Aggregate, ResultFile, Counter, Sort, \
+                              Demux, Limit
 from lisa.util import UniversalSelect
 from lisa.info import ThreadInfo
 
 tracks = int(sys.argv[1])
 
-log = logging.getLogger('main')
-log.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
 log.addHandler(ch)
 
 query = Geometry(Polygon((
@@ -36,19 +43,18 @@ query = Geometry(Polygon((
 )))
 
 
-states_file = 'data/spatial/states'
-counties_file = 'data/spatial/counties'
-geonames_file = 'data/spatial/geonames_medium'
-#geonames_file = 'data/spatial/geonames'
+states_file = sys.argv[2]
+counties_file = sys.argv[3]
+geonames_file = sys.argv[4]
 
 #############################################################
 #
 # Query 4
 #
-# SELECT us_states.gid, us_counties.gid, COUNT(geonames.*) FROM us_states
-# LEFT JOIN us_counties 
-#   ON CONTAINS(us_states.the_geom, us_counties.the_geom)
-# LEFT JOIN geonames ON CONTAINS(us_counties.the_geom, geonames.location)
+# SELECT states.id, counties.id, COUNT(geonames.*) FROM states
+# LEFT JOIN counties 
+#   ON CONTAINS(states.geom, counties.geom)
+# LEFT JOIN geonames ON CONTAINS(counties.geom, geonames.location)
 # WHERE 
 #   CONTAINS(
 #       MakeBox2D(
@@ -57,13 +63,13 @@ geonames_file = 'data/spatial/geonames_medium'
 #       ),
 #       geonames.location
 #   )
-# GROUP BY ROLLUP(us_states.gid, us_counties.gid);
+# GROUP BY ROLLUP(states.id, counties.id);
 #
 #############################################################
 
 # Schema definition of the query stream: an interval across all states.
 query_schema = Schema()
-query_schema.append(Attribute('states.the_geom', Geometry))
+query_schema.append(Attribute('states.geom', Geometry))
 
 # Aggregation function for max height.
 class SumAggregator(object):
@@ -134,7 +140,7 @@ query_streamer = ArrayStreamer(query_schema, [
 engines.append(query_streamer)
 
 # Query the states from the data source.
-states_source = Rtree(states_file, 'states.the_geom')
+states_source = Rtree(states_file, 'states.geom')
 states_accessor = DataAccessor(
     query_streamer.output(),
     states_source,
@@ -149,9 +155,9 @@ states_select = Select(
         states_accessor.output().schema(),
         {
             # trim geometry
-            'states.the_geom': {
+            'states.geom': {
                 'type': Geometry,
-                'args': ['states.the_geom'],
+                'args': ['states.geom'],
                 'function': lambda v: intersection(v, query),
             },
             # keep OID
@@ -171,9 +177,9 @@ states_query = Select(
     UniversalSelect(
         states_select.output().schema(),
         {
-            'counties.the_geom': {
+            'counties.geom': {
                 'type': Geometry,
-                'args': ['states.the_geom'],
+                'args': ['states.geom'],
                 'function': lambda v: v,
             },
         }
@@ -182,7 +188,7 @@ states_query = Select(
 engines.append(states_query)
 
 # Finally query the counties
-counties_source = Rtree(counties_file, 'counties.the_geom')
+counties_source = Rtree(counties_file, 'counties.geom')
 counties_accessor = DataAccessor(
     states_query.output(),
     counties_source,
@@ -201,9 +207,9 @@ counties_oid_select = Select(
                 'args': ['oid'],
                 'function': lambda v: v,
             },
-            'counties.the_geom': {
+            'counties.geom': {
                 'type': Geometry,
-                'args': ['counties.the_geom'],
+                'args': ['counties.geom'],
                 'function': lambda v: v,
             },
         }
@@ -228,6 +234,8 @@ engines.append(states_counties_join)
 # De-multiplex the joined stream across multiple tracks for better CPU core
 # utilization.
 demux = Demux(states_counties_join.output())
+engines.append(demux)
+
 mux_streams = []
 for i in range(tracks):
     channel = demux.channel()
@@ -241,7 +249,7 @@ for i in range(tracks):
             {
                 'geonames.location': {
                     'type': Geometry,
-                    'args': ['states.the_geom', 'counties.the_geom'],
+                    'args': ['states.geom', 'counties.geom'],
                     'function': lambda s, c: intersection(s, c),
                 }
             }
@@ -405,40 +413,79 @@ all_level_aggregate = Aggregate(
 )
 engines.append(all_level_aggregate)
 
-output_attr = Select(
-    states_counties_join.output(),
+
+output_level1_attr = Select(
+    mux.output(),
     UniversalSelect(
-        states_counties_join.output().schema(),
-        {
-            'states.oid': {
+        mux.output().schema(),
+        [
+            ('states.oid', {
                 'type': int,
                 'args': ['states.oid'],
                 'function': lambda v: v,
-            },
-            'counties.oid': {
+            }),
+            ('counties.oid', {
                 'type': int,
                 'args': ['counties.oid'],
                 'function': lambda v: v,
-            }
-        }
+            }),
+            ('count', {
+                'type': int,
+                'args': ['count'],
+                'function': lambda v: v,
+            }),
+        ]
     )
 )
-engines.append(output_attr)
+engines.append(output_level1_attr)
+
+output_level2_attr = Select(
+    states_level_aggregate.output(),
+    UniversalSelect(
+        states_level_aggregate.output().schema(),
+        [
+            ('states.oid', {
+                'type': int,
+                'args': ['states.oid'],
+                'function': lambda v: v,
+            }),
+            ('count', {
+                'type': int,
+                'args': ['count'],
+                'function': lambda v: v,
+            }),
+        ]
+    )
+)
+engines.append(output_level2_attr)
+
+output_level3_attr = Select(
+    all_level_aggregate.output(),
+    UniversalSelect(
+        all_level_aggregate.output().schema(),
+        [
+            ('count', {
+                'type': int,
+                'args': ['count'],
+                'function': lambda v: v,
+            }),
+        ]
+    )
+)
+engines.append(output_level3_attr)
 
 # Output
-result_stack = ResultFile(
-    'results.txt',
-    mux.output(),
-    states_level_aggregate.output(),
-    all_level_aggregate.output()
+result_file = ResultFile(
+    'query4-results.txt',
+    output_level1_attr.output(),
+    output_level2_attr.output(),
+    output_level3_attr.output(),
 )
-engines.append(result_stack)
+engines.append(result_file)
 
-info_queue = Queue()
-
-def manage(task):
+def manage(name, task):
+    print '%s: %s' % (name, str(current_process().pid))
     task.run()
-    info_queue.put((task, ThreadInfo()))
 
 tasks = []
 tasks += [(e.name, e) for e in engines]
@@ -446,10 +493,10 @@ tasks += [(e.name, e) for e in engines]
 threads = []
 for t in tasks:
     threads.append(
-        Thread(
+        Process(
             target = manage, 
             name = t[0], 
-            args = (t[1],)
+            args = (t[0], t[1],)
         )
     )
 
@@ -458,17 +505,8 @@ for t in threads:
 
 for t in threads:
     t.join()
+    log.info('Done %s' % (t))
 
-for c in counters:
-    print 'Counter: %d records, %d stop words' % c.stats()
-
-infos = {}
-while not info_queue.empty():
-    t, i = info_queue.get()
-    infos[t] = i
-    info_queue.task_done()
-
-for name, task in tasks:
-    print infos[task]
+log.info('All threads are done.')
 
 sys.stderr.write('%d,%d\n' % (tracks, len(threads)))

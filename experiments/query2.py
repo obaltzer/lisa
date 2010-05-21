@@ -1,10 +1,15 @@
 import sys
+import logging
+import time
+import os
 
 # Setup the package search path.
-sys.path.insert(0, '../lib')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
-from threading import Thread, current_thread
-from Queue import Queue
+from multiprocessing import Process
+from multiprocessing import current_process
+
+from multiprocessing import JoinableQueue as Queue
 
 from lisa.schema import Schema, Attribute
 from lisa.data_source import DBTable
@@ -12,13 +17,21 @@ from lisa.access_methods import FindIdentities, FindRange
 from lisa.types import IntInterval
 from lisa.mini_engines import ArrayStreamer, DataAccessor, ResultStack, \
                               Select, Mux, Group, Join, Filter, \
-                              Aggregate, ResultFile
-from lisa.stream import Demux
+                              Aggregate, ResultFile, Demux, Sort
 from lisa.util import UniversalSelect
-from lisa.info import ThreadInfo
 
 tracks = int(sys.argv[1])
 input_file = sys.argv[2]
+
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+ch = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
+log.addHandler(ch)
 
 #############################################################
 #
@@ -238,6 +251,7 @@ family_genus_species_joiner = Join(
 engines.append(family_genus_species_joiner)
 
 demux = Demux(family_genus_species_joiner.output())
+engines.append(demux)
 
 mux_streams = []
 for i in range(tracks):
@@ -376,9 +390,19 @@ family_genus_select = Select(
 )
 engines.append(family_genus_select)
 
+family_genus_sorter = Sort(
+    family_genus_select.output(),
+    [  
+        ('family.id', lambda a, b: cmp(a, b)),
+        ('genus.id', lambda a, b: cmp(a, b))
+    ],
+    True # sort all input, not only the current partition
+)
+engines.append(family_genus_sorter)
+
 # Generate aggregation groups for second aggregation level.
 family_genus_grouper = Group(
-    family_genus_select.output(), 
+    family_genus_sorter.output(), 
     {
         'family.id': lambda a, b: a == b,
         'genus.id': lambda a, b: a == b
@@ -461,20 +485,18 @@ all_aggregate = Aggregate(
 )
 engines.append(all_aggregate)
 
-result_stack = ResultFile(
-    'results.txt',
+result_file = ResultFile(
+    'query2-results.txt',
     family_genus_species_select.output(),
-#    family_genus_aggregate.output(),
-#    family_aggregate.output(),
-#    all_aggregate.output(),
+    family_genus_aggregate.output(),
+    family_aggregate.output(),
+    all_aggregate.output(),
 )
-engines.append(result_stack)
+engines.append(result_file)
 
-info_queue = Queue()
-
-def manage(task):
+def manage(name, task):
+    print '%s: %s' % (name, str(current_process().pid))
     task.run()
-    info_queue.put((task, ThreadInfo()))
 
 tasks = []
 tasks += [(e.name, e) for e in engines]
@@ -482,10 +504,10 @@ tasks += [(e.name, e) for e in engines]
 threads = []
 for t in tasks:
     threads.append(
-        Thread(
+        Process(
             target = manage, 
             name = t[0], 
-            args = (t[1],)
+            args = (t[0], t[1],)
         )
     )
 
@@ -494,14 +516,8 @@ for t in threads:
 
 for t in threads:
     t.join()
+    log.info('Done %s' % (t))
 
-infos = {}
-while not info_queue.empty():
-    t, i = info_queue.get()
-    infos[t] = i
-    info_queue.task_done()
-
-for name, task in tasks:
-    print infos[task]
+log.info('All threads are done.')
 
 sys.stderr.write('%d,%d\n' % (tracks, len(threads)))

@@ -1,4 +1,5 @@
 from types import Interval
+import logging
 
 class AccessMethod(object):
     def __init__(self, data_source):
@@ -64,16 +65,17 @@ class FindIdentities(AccessMethod):
 class FindRange(AccessMethod):
     def __init__(self, data_source):
         AccessMethod.__init__(self, data_source)
-        print 'Find Range Access Method'
+        self.log = logging.getLogger('FindRange')
+        self.log.debug('Find Range Access Method')
         if data_source.provides_intersect():
-            print 'Setting access method to _query_intersect'
+            self.log.debug('Setting access method to _query_intersect')
             self.query = self._query_intersect
         # Cannot use random access since the given range may not be
         # discretizable
         #elif data_source.provides_random_access():
         #    self.query = self._query_random_access
         elif data_source.provides_iterator():
-            print 'Setting access method to _query_iterator'
+            self.log.debug('Setting access method to _query_iterator')
             self.query = self._query_iterator
         else:
             raise Exception('Access Method not supported by data source.')
@@ -117,5 +119,3 @@ class FindRange(AccessMethod):
             if match:
                 returned += 1
                 yield r
-        print 'Retrieved: ', retrieved
-        print 'Returned: ', returned

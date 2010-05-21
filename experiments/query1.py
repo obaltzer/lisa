@@ -221,7 +221,7 @@ mux = Mux(*mux_streams)
 engines.append(mux)
 
 result_file = ResultFile(
-    'results.txt',
+    'query1-results.txt',
     mux.output(),
 )
 engines.append(result_file)

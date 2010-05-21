@@ -745,7 +745,7 @@ engines.append(all_level_aggregate)
 ############################################################
 
 result_file = ResultFile(
-    'results.txt',
+    'query5-results.txt',
     mux.output(),
     counties_level_aggregate.output(),
     states_level_aggregate.output(),
