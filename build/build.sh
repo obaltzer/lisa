@@ -44,7 +44,7 @@ build_rtree()
 
 
 if [ "$VIRTUAL_ENV" -a -d "$VIRTUAL_ENV" ] ; then
-    # build_geos
+    build_geos
     build_shapely
     build_spatialindex
     build_rtree
