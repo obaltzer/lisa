@@ -1,0 +1,130 @@
+Datasets
+--------
+
+Synthetic Categorical:
+  - 3 levels:
+      - family(20)
+      - genus(15 +/- 20% = 306)
+      - species(60 +/- 20% = 18320)
+  - the number specified is the number of members at the bottom level
+  - the cardinality of other levels is derived from the cardinality of the
+    bottom level based on generation rules and randomization
+
+Real Spatial:
+  - Original Dataset:
+      - States: USA (51 records)
+      - Counties: USA (3140 records)
+      - ZIP5: USA (50067 records)
+      - Land Usage: USA (361202 records)
+      - Geonames: USA (1884749 records)
+  - Small Dataset
+      - trimmed to Estern US [(-78, 38), (-73, 41)]:
+        - Virginia
+        - West Virginia
+        - Pennsylvania
+        - Maryland
+        - Delaware
+        - DC
+        - New York
+        - Connecticut
+        - New Jersey
+      - States: USA (9 records)
+      - Counties: USA (116 records)
+      - ZIP5: USA (3164 records)
+      - Land Usage: USA (13079 records)
+      - Geonames: USA (1884749 records)
+
+Experiments
+-----------
+
+1. run-time vs. number of processors
+  
+  - Query 1: plants_100000
+  - Query 2: plants_100000
+  - Query 3: counties(small/116), geonames
+  - Query 4: states(small/9), counties(small/116), geonames
+  - Query 5: states(small/9), counties(small/116), zip5(small/3164),
+             lulc(small/13079)
+
+  Variables:
+    Processors: 1-8
+    Tracks: 1-30
+
+  Expected Analysis:
+    - For each processor configuration, what is the best run-time that can
+      be achieved independent of the number of tracks?
+
+      ^
+      |.
+    t | ` .
+      |    ` .
+      |       ` . 
+      +------------------->
+          processors
+
+
+2. run-time vs. number of tracks
+
+  - Query 1: plants_100000
+  - Query 2: plants_100000
+  - Query 3: counties(small/116), geonames
+  - Query 4: states(small/9), counties(small/116), geonames
+  - Query 5: states(small/9), counties(small/116), zip5(small/3164),
+             lulc(small/13079)
+
+  Variables:
+    Processors: 1-8
+    Tracks: 1-30
+
+  Expected Analysis:
+    - For the maximum number of processors, how does the number of tracks
+      affect the runtime?
+
+      ^
+      |
+    t |    ,...
+      |  ,'    `'.
+      |,'         `'.
+      +------------------->
+             tracks
+
+    - CPU utilization and efficiency
+
+3. Scalability with input size
+
+  - Query 1: datasets between 100000 and 1000000 records
+  - Query 2: datasets between 100000 and 1000000 records
+  - Query 3: sampled large dataset at 10 20 30 40 50 60 70 80 90 100%
+      - keep counties (3140)
+      - geonames sampled
+  - Query 4: sampled large dataset at 10 20 30 40 50 60 70 80 90 100%
+      - keep states (51)
+      - keep counties (3140)
+      - geonames sampled
+  - Query 5: sampled large dataset at 10 20 30 40 50 60 70 80 90 100%
+      - keep states (51)
+      - keep counties (3140)
+      - keep zip5 (50067)
+      - lulc sampled
+
+  Variables:
+    - execute for 1 CPU with 1 track
+    - execute for 8 CPUs with 1-30 tracks
+    - different data sizes
+
+  Expected Analysis:
+
+    - What is the run-time depending on the size of the problem?
+      >>> Ideally linear !!!
+
+      ^
+      |   
+    t |  
+      |         ,,,...''''
+      |,,,...'''
+      +------------------->
+             data size
+
+      
+
+  
