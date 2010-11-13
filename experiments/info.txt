@@ -13,10 +13,25 @@ Synthetic Categorical:
 Real Spatial:
   - Original Dataset:
       - States: USA (51 records)
+          - Table: states_large
+          - File: data/real/spatial/original/states.txt.bz2
+      
       - Counties: USA (3140 records)
+          - Table: counties_large
+          - File: data/real/spatial/original/counties.txt.bz2
+      
       - ZIP5: USA (50067 records)
+          - Table: zip5_large
+          - File: data/real/spatial/original/zip5.txt.bz2
+      
       - Land Usage: USA (361202 records)
+          - Table: lulc_large
+          - File: data/real/spatial/original/lulc.txt.bz2
+      
       - Geonames: USA (1884749 records)
+          - Table: geonames
+          - File: data/real/spatial/original/geonames.txt.bz2
+
   - Small Dataset
       - trimmed to Estern US [(-78, 38), (-73, 41)]:
         - Virginia
@@ -40,11 +55,20 @@ Experiments
 1. run-time vs. number of processors
   
   - Query 1: plants_100000
+      ** PostgreSQL query time is approx. 0.2 seconds; LISA query time is
+      65+ seconds.
   - Query 2: plants_100000
+      ** PostgreSQL when executing the query for each level independently
+      the total query time is approx. 0.5 seconds. However, an
+      implementation of a proper ROLLUP query executes in 202 seconds. LISA
+      can outperform this implementation 2+ cores.
   - Query 3: counties(small/116), geonames
+      ** too small for PostGIS; only runs 0.98 seconds vs. LISA 8+ seconds
   - Query 4: states(small/9), counties(small/116), geonames
+      ** too small for PostGIS; only runs 0.7 seconds vs. LISA 9+ seconds
   - Query 5: states(small/9), counties(small/116), zip5(small/3164),
              lulc(small/13079)
+      ** LISA outperforms with 3+ cores
 
   Variables:
     Processors: 1-8
@@ -102,9 +126,9 @@ Experiments
       - keep counties (3140)
       - geonames sampled
   - Query 5: sampled large dataset at 10 20 30 40 50 60 70 80 90 100%
-      - keep states (51)
-      - keep counties (3140)
-      - keep zip5 (50067)
+      - keep states (51) (small/9)
+      - keep counties (3140) (small/116)
+      - keep zip5 (50067) (small/3164)
       - lulc sampled
 
   Variables:
@@ -125,6 +149,62 @@ Experiments
       +------------------->
              data size
 
-      
+    - Normalized time (time/size) vs. track count
 
+      ^
+      |     ,' (size A)
+  t/s |   ,'
+      | ,'      ,,,...'''' (size B)
+      |,,,...'''
+      +------------------->
+             tracks
+
+4. LISA vs. Categorical SQL (SQLite)
+
+  - Query 1: Implementation of Query 1 in SQL. Dataset 100000.
+  - Query 2: Implementation of Query 2 in SQL. Dataset 100000.
+
+  Variables:
+    - Number of processors 1 - 8
+    - 1 track vs. best number of tracks
+
+  Expected Analysis:
+    - How does the performance of LISA compare against the a pure SQL
+      implementation with SQLite?
+    - In the single track case we are expecting SQLite to outperform LISA,
+      however, in the 8 CPU case with optimal number of tracks we expect
+      LISA to be better by a factor of about 7.
+
+      ^
+      | . (LISA best) + (LISA 1 track)
+    t |  `.
+      |----`--------------- (SQLite)
+      |      `-.........
+      +------------------->
+             processors
   
+5. LISA vs. Spatial SQL (PostgreSQL / PostGIS)
+
+  - Query 3: Implementation of Query 3 in PostGIS. Dataset small.
+  - Query 4: Implementation of Query 4 in PostGIS. Dataset small.
+  - Query 5: Implementation of Query 5 in PostGIS using PostgreSQL
+             functions for efficiency. Dataset small.
+
+  Variables:
+    - Number of processors 1 - 8
+    - 1 track vs. best number of tracks
+
+  Expected Analysis:
+    - How does the performance of LISA compare against a pure PostgreSQL
+      implementation?
+    - The single track run is expected to be outperformed by PostgreSQL,
+      however, the multiple CPU / best track configuration is expected to
+      be approx. 7x better.
+
+      ^
+      | . (LISA best) + (LISA 1 track)
+    t |  `.
+      |----`--------------- (PostGIS)
+      |      `-.........
+      +------------------->
+             processors

@@ -3,7 +3,7 @@
 #PBS -S /bin/bash
 #PBS -l nodes=1:ppn=8
 #PBS -l walltime=8:00:00
-#PBS -N query5
+#PBS -N query5_scalability
 
 if [ "$PBS_JOBNAME" ] ; then
   JOBNAME=$PBS_JOBNAME
@@ -13,30 +13,36 @@ fi
 
 LISA_HOME=$HOME/phd/lisa
 RESULTS_DIR=${HOME}/phd/results/lisapy/${JOBNAME}
-SOURCE_DIR=$HOME/phd/data/real/spatial/small
+DATA_HOME=$HOME/phd/data
+SOURCE_DIR=${DATA_HOME}/real/spatial/small
 SCRATCH_DIR=/state/partition1/obaltzer/phd/data/lisapy
 INDEX_TOOL=${LISA_HOME}/tools/create_index.py
+SAMPLE_TOOL="python ${DATA_HOME}/scripts/sample.py"
 
-INPUT_FILES="counties states zip5 lulc"
-TRACKS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30"
+TRACKS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22"
 #TRACKS="11"
 QUERY_SCRIPT=${LISA_HOME}/experiments/query5.py
 RUNNING=1
 
+# Determine the dataset that is to be used.
+if [ "${PBS_ARRAYID}" ] ; then
+  SIZE="${PBS_ARRAYID}0"
+else
+  SIZE=10
+fi
+
+INPUT_FILES="counties:100 states:100 zip5:100 lulc_full:${SIZE}"
+
+N_CPU=8
+
 mkdir -p ${RESULTS_DIR}
 if [ "${PBS_JOBID}" ] ; then
     filename=$(echo ${PBS_JOBID} | cut -d. -f1)
-    RESULTS_FILE=${RESULTS_DIR}/${filename}.csv
+    RESULTS_FILE=${RESULTS_DIR}/${filename}_${SIZE}.csv
 else
     RESULTS_FILE=${RESULTS_DIR}/results.csv
 fi
 touch ${RESULTS_FILE}
-
-if [ "${PBS_ARRAYID}" ] ; then
-    N_CPU=${PBS_ARRAYID}
-else
-    N_CPU=8
-fi
 
 . $LISA_HOME/bin/lisaenv
 
@@ -85,13 +91,14 @@ function timed() {
 function convert_input() {
     mkdir -p ${SCRATCH_DIR}
     for f in ${INPUT_FILES} ; do
-        local source=${SOURCE_DIR}/$f.txt
-        local dest=${SCRATCH_DIR}/$f
+        local source=${SOURCE_DIR}/${f%:*}.txt
+        local size=${f#*:}
+        local dest=${SCRATCH_DIR}/${f%:*}_${size}
         local destidx=${dest}.idx
     
         if [ ! -f ${destidx} -o ${source} -nt ${destidx} ] ; then
             echo "Creating dataset ${dest}"
-            cat ${source} | python ${INDEX_TOOL} ${dest}
+            cat ${source} | ${SAMPLE_TOOL} ${size} | python ${INDEX_TOOL} ${dest}
         fi
     done
 }
@@ -143,7 +150,8 @@ function run() {
     local tracks=$1
     local args=""
     for f in ${INPUT_FILES} ; do
-        args="${args} ${SCRATCH_DIR}/$f"
+        local size=${f#*:}
+        args="${args} ${SCRATCH_DIR}/${f%:*}_${size}"
     done
     if [ ${RUNNING} -eq 1 ] ; then
         pushd ${SCRATCH_DIR}
@@ -158,12 +166,15 @@ function run_timed() {
     local tracks=$1
     local args=""
     for f in ${INPUT_FILES} ; do
-        args="${args} ${SCRATCH_DIR}/$f"
+        local size=${f#*:}
+        args="${args} ${SCRATCH_DIR}/${f%:*}_${size}"
     done
     if [ ${RUNNING} -eq 1 ] ; then
         pushd ${SCRATCH_DIR}
-        local output=$(timed python ${QUERY_SCRIPT} ${tracks} ${args})
-        local result="${N_CPU},${tracks},${output}"
+        cmd="python ${QUERY_SCRIPT} ${tracks} ${args}"
+        echo $cmd
+        local output=$(timed ${cmd})
+        local result="${N_CPU},${tracks},${SIZE},${output}"
         echo ${result} >> ${RESULTS_FILE}
         popd
     fi
@@ -175,7 +186,7 @@ trap control_c SIGINT
 convert_input
 
 # Configure CPUs
-sudo /share/apps/admin/setcpu $N_CPU
+configure_cpus
 
 # warm up the cache
 run 8
@@ -186,4 +197,4 @@ for t in ${TRACKS} ; do
 done
 
 # restore CPUs
-sudo /share/apps/admin/setcpu
+restore_cpus
