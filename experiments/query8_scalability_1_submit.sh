@@ -2,9 +2,8 @@
 #
 #PBS -S /bin/bash
 #PBS -l nodes=1:ppn=8
-#PBS -l walltime=8:00:00
-#PBS -N query3_large_scalability
-# 10 - 100%
+#PBS -l walltime=48:00:00
+#PBS -N query8_scalability
 #PBS -t 1-10
 
 if [ "$PBS_JOBNAME" ] ; then
@@ -16,14 +15,15 @@ fi
 LISA_HOME=$HOME/phd/lisa
 RESULTS_DIR=${HOME}/phd/results/lisapy/${JOBNAME}
 DATA_HOME=$HOME/phd/data
-SOURCE_DIR=${DATA_HOME}/real/spatial/original
-SCRATCH_DIR=/state/partition1/obaltzer/phd/data/lisapy/large
+SOURCE_DIR=${DATA_HOME}/synthetic/tpch
+SCRATCH_DIR=/state/partition1/obaltzer/phd/data/lisapy
 INDEX_TOOL=${LISA_HOME}/tools/create_index.py
-SAMPLE_TOOL="python ${DATA_HOME}/scripts/sample.py"
+TPCH_SQLITE=${LISA_HOME}/tools/tpch_sqlite.sh
+GENDATA_TOOL="bash ${DATA_HOME}/scripts/gendata.sh"
 
 TRACKS="1"
 #TRACKS="11"
-QUERY_SCRIPT=${LISA_HOME}/experiments/query3.py
+QUERY_SCRIPT=${LISA_HOME}/experiments/query8.py
 RUNNING=1
 
 # Determine the dataset that is to be used.
@@ -33,7 +33,7 @@ else
   SIZE=10
 fi
 
-INPUT_FILES="counties:100 geonames:${SIZE}"
+SF=${SIZE}
 
 N_CPU=1
 
@@ -45,6 +45,7 @@ else
     RESULTS_FILE=${RESULTS_DIR}/results.csv
 fi
 touch ${RESULTS_FILE}
+
 
 . $LISA_HOME/bin/lisaenv
 
@@ -92,16 +93,15 @@ function timed() {
 ###################################################
 function convert_input() {
     mkdir -p ${SCRATCH_DIR}
-    for f in ${INPUT_FILES} ; do
-        local source=${SOURCE_DIR}/${f%:*}.txt.bz2
-        local size=${f#*:}
-        local dest=${SCRATCH_DIR}/${f%:*}_${size}
-        local destidx=${dest}.idx
-    
-        if [ ! -f ${destidx} -o ${source} -nt ${destidx} ] ; then
-            echo "Creating dataset ${dest}"
-            bzcat ${source} | ${SAMPLE_TOOL} ${size} | python ${INDEX_TOOL} ${dest}
-        fi
+    for sf in ${SF} ; do
+      if [ ! -f ${SCRATCH_DIR}/tpch_${sf}.db ] ; then
+        for f in region nation customer orders lineitem ; do
+          cp -v ${SOURCE_DIR}/${f}_${sf}.txt ${SCRATCH_DIR}
+        done
+        pushd ${SCRATCH_DIR}
+        ${TPCH_SQLITE} ${sf} all
+        popd
+      fi
     done
 }
 
@@ -151,9 +151,8 @@ function restore_cpus() {
 function run() {
     local tracks=$1
     local args=""
-    for f in ${INPUT_FILES} ; do
-        local size=${f#*:}
-        args="${args} ${SCRATCH_DIR}/${f%:*}_${size}"
+    for sf in ${SF} ; do
+        args="${args} ${SCRATCH_DIR}/tpch_${sf}.db"
     done
     if [ ${RUNNING} -eq 1 ] ; then
         pushd ${SCRATCH_DIR}
@@ -167,9 +166,8 @@ function run() {
 function run_timed() {
     local tracks=$1
     local args=""
-    for f in ${INPUT_FILES} ; do
-        local size=${f#*:}
-        args="${args} ${SCRATCH_DIR}/${f%:*}_${size}"
+    for sf in ${SF} ; do
+        args="${args} ${SCRATCH_DIR}/tpch_${sf}.db"
     done
     if [ ${RUNNING} -eq 1 ] ; then
         pushd ${SCRATCH_DIR}

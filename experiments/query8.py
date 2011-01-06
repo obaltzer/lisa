@@ -1,7 +1,5 @@
-# This query is the same as Query 2 except it is executed on TPC-H data.
-#
-# Tracks are being split before querying the lowest level layer (lineitem).
-#
+# Same as query 6 except tracks are split before the customer layer (2nd
+# level).
 
 import sys
 import logging
@@ -162,187 +160,196 @@ nation_accessor = DataAccessor(
 )
 engines.append(nation_accessor)
 
-# A group mini-engine to split the nation IDs into groups.
-nation_id_grouper = Group(
-    nation_accessor.output(), 
-    {'nation.id': lambda a, b: a == b}
-)
-engines.append(nation_id_grouper)
+demux0 = Demux(nation_accessor.output())
+engines.append(demux0)
 
-# Select only the nation ID for querying genera.
-nation_id_select = Select(
-    nation_accessor.output(),
-    UniversalSelect(
-        nation_accessor.output().schema(),
-        {
-            'customer.nation_id': {
-                'type': int,
-                'args': ['nation.id'],
-                'function': lambda v: v
-            }
-        }
+mux0_streams = []
+for i in range(tracks / 2 + 1):
+    
+    channel0 = demux0.channel()
+
+    # A group mini-engine to split the nation IDs into groups.
+    nation_id_grouper = Group(
+        channel0, 
+        {'nation.id': lambda a, b: a == b}
     )
-)
-engines.append(nation_id_select)
+    engines.append(nation_id_grouper)
 
-
-# Data source for the genera.
-customer_source = DBTable(input_file, 'customer', customer_schema)
-
-
-# Data accessor for the genera data source.
-customer_accessor = DataAccessor(
-    nation_id_select.output(), 
-    customer_source,
-    FindIdentities
-)
-engines.append(customer_accessor)
-
-
-# A join mini-engine to associate families with genera.
-nation_customer_joiner = Join(
-    nation_id_grouper.output(), 
-    customer_accessor.output(),
-)
-engines.append(nation_customer_joiner)
-
-
-# A group mini-engine to split the (nation, customer) IDs into groups.
-nation_customer_id_grouper = Group(
-    nation_customer_joiner.output(), 
-    {
-        'nation.id': lambda a, b: a == b,
-        'customer.id': lambda a, b: a == b
-    },
-)
-engines.append(nation_customer_id_grouper)
-
-
-# Select only the customer ID for querying orders.
-customer_id_select = Select(
-    nation_customer_joiner.output(),
-    UniversalSelect(
-        nation_customer_joiner.output().schema(),
-        {
-            'orders.customer_id': {
-                'type': int,
-                'args': ['customer.id'],
-                'function': lambda v: v
-            }
-        }
-    )
-)
-engines.append(customer_id_select)
-
-
-# Data source for the orders.
-orders_source = DBTable(input_file, 'orders', orders_schema)
-
-
-# Data accessor for the orders data source.
-orders_accessor = DataAccessor(
-    customer_id_select.output(), 
-    orders_source,
-    FindIdentities
-)
-engines.append(orders_accessor)
-
-
-# A join mini-engine to associate families, genera and orders.
-nation_customer_orders_joiner = Join(
-    nation_customer_id_grouper.output(), 
-    orders_accessor.output(),
-)
-engines.append(nation_customer_orders_joiner)
-
-demux = Demux(nation_customer_orders_joiner.output())
-engines.append(demux)
-
-mux_streams = []
-for i in range(tracks):
-    channel = demux.channel()
-
-    # Select only the orders ID for querying lineitem.
-    orders_id_select = Select(
-        channel,
+    # Select only the nation ID for querying genera.
+    nation_id_select = Select(
+        channel0,
         UniversalSelect(
-            channel.schema(),
+            channel0.schema(),
             {
-                'lineitem.order_id': {
+                'customer.nation_id': {
                     'type': int,
-                    'args': ['orders.id'],
+                    'args': ['nation.id'],
                     'function': lambda v: v
                 }
             }
         )
     )
-    engines.append(orders_id_select)
+    engines.append(nation_id_select)
 
-    # Data source for the lineitem.
-    lineitem_source = DBTable(input_file, 'lineitem', lineitem_schema)
-    # Data accessor for the lineitem data source.
-    lineitem_accessor = DataAccessor(
-        orders_id_select.output(), 
-        lineitem_source,
+
+    # Data source for the genera.
+    customer_source = DBTable(input_file, 'customer', customer_schema)
+
+
+    # Data accessor for the genera data source.
+    customer_accessor = DataAccessor(
+        nation_id_select.output(), 
+        customer_source,
         FindIdentities
     )
-    engines.append(lineitem_accessor)
+    engines.append(customer_accessor)
 
-    lineitem_filter = Filter(
-        lineitem_accessor.output(),
-        FilterQuantity(lineitem_accessor.output().schema())
+    # A join mini-engine to associate families with genera.
+    nation_customer_joiner = Join(
+        nation_id_grouper.output(), 
+        customer_accessor.output(),
     )
-    engines.append(lineitem_filter)
+    engines.append(nation_customer_joiner)
 
-    # Select only the orders ID for querying lineitem.
-    lineitem_price_select = Select(
-        lineitem_filter.output(),
-        UniversalSelect(
-            lineitem_filter.output().schema(),
+    demux = Demux(nation_customer_joiner.output())
+    engines.append(demux)
+
+    mux_streams = []
+    for j in range(tracks):
+        channel = demux.channel()
+     
+        # A group mini-engine to split the (nation, customer) IDs into groups.
+        nation_customer_id_grouper = Group(
+            channel, 
             {
-                'lineitem.price': {
-                    'type': int,
-                    'args': ['lineitem.price'],
-                    'function': lambda v: v
+                'nation.id': lambda a, b: a == b,
+                'customer.id': lambda a, b: a == b
+            },
+        )
+        engines.append(nation_customer_id_grouper)
+
+
+        # Select only the customer ID for querying orders.
+        customer_id_select = Select(
+            channel,
+            UniversalSelect(
+                nation_customer_joiner.output().schema(),
+                {
+                    'orders.customer_id': {
+                        'type': int,
+                        'args': ['customer.id'],
+                        'function': lambda v: v
+                    }
                 }
+            )
+        )
+        engines.append(customer_id_select)
+
+
+        # Data source for the orders.
+        orders_source = DBTable(input_file, 'orders', orders_schema)
+
+
+        # Data accessor for the orders data source.
+        orders_accessor = DataAccessor(
+            customer_id_select.output(), 
+            orders_source,
+            FindIdentities
+        )
+        engines.append(orders_accessor)
+
+        # A join mini-engine to associate families, genera and orders.
+        nation_customer_orders_joiner = Join(
+            nation_customer_id_grouper.output(), 
+            orders_accessor.output(),
+        )
+        engines.append(nation_customer_orders_joiner)
+
+        # Select only the orders ID for querying lineitem.
+        orders_id_select = Select(
+            nation_customer_orders_joiner.output(),
+            UniversalSelect(
+                nation_customer_orders_joiner.output().schema(),
+                {
+                    'lineitem.order_id': {
+                        'type': int,
+                        'args': ['orders.id'],
+                        'function': lambda v: v
+                    }
+                }
+            )
+        )
+        engines.append(orders_id_select)
+
+        # Data source for the lineitem.
+        lineitem_source = DBTable(input_file, 'lineitem', lineitem_schema)
+        # Data accessor for the lineitem data source.
+        lineitem_accessor = DataAccessor(
+            orders_id_select.output(), 
+            lineitem_source,
+            FindIdentities
+        )
+        engines.append(lineitem_accessor)
+
+        lineitem_filter = Filter(
+            lineitem_accessor.output(),
+            FilterQuantity(lineitem_accessor.output().schema())
+        )
+        engines.append(lineitem_filter)
+
+        # Select only the orders ID for querying lineitem.
+        lineitem_price_select = Select(
+            lineitem_filter.output(),
+            UniversalSelect(
+                lineitem_filter.output().schema(),
+                {
+                    'lineitem.price': {
+                        'type': int,
+                        'args': ['lineitem.price'],
+                        'function': lambda v: v
+                    }
+                }
+            )
+        )
+        engines.append(lineitem_price_select)
+
+        lineitem_price_aggregate = Aggregate(
+            lineitem_price_select.output(),
+            MaxPriceAggregator(lineitem_price_select.output().schema())
+        )
+        engines.append(lineitem_price_aggregate)
+
+        nation_customer_orders_id_grouper = Group(
+            nation_customer_orders_joiner.output(), 
+            {
+                'nation.id': lambda a, b: a == b,
+                'customer.id': lambda a, b: a == b,
+                'orders.id': lambda a, b: a == b
             }
         )
-    )
-    engines.append(lineitem_price_select)
+        engines.append(nation_customer_orders_id_grouper)
+        # mux_streams.append(nation_customer_orders_id_grouper.output())
 
-    lineitem_price_aggregate = Aggregate(
-        lineitem_price_select.output(),
-        MaxPriceAggregator(lineitem_price_select.output().schema())
-    )
-    engines.append(lineitem_price_aggregate)
+        orders_lineitem_joiner = Join(
+            nation_customer_orders_id_grouper.output(), 
+            lineitem_price_aggregate.output()
+        )
+        engines.append(orders_lineitem_joiner)
+        mux_streams.append(orders_lineitem_joiner.output())
 
-    nation_customer_orders_id_grouper = Group(
-        channel, 
-        {
-            'nation.id': lambda a, b: a == b,
-            'customer.id': lambda a, b: a == b,
-            'orders.id': lambda a, b: a == b
-        }
-    )
-    engines.append(nation_customer_orders_id_grouper)
-    # mux_streams.append(nation_customer_orders_id_grouper.output())
+    mux = Mux(*mux_streams)
+    engines.append(mux)
 
-    orders_lineitem_joiner = Join(
-        nation_customer_orders_id_grouper.output(), 
-        lineitem_price_aggregate.output()
-    )
-    engines.append(orders_lineitem_joiner)
-    mux_streams.append(orders_lineitem_joiner.output())
+    mux0_streams.append(mux.output())
 
-mux = Mux(*mux_streams)
-engines.append(mux)
-
+mux0 = Mux(*mux0_streams)
+engines.append(mux0)
 
 # First aggregation level output selection
 nation_customer_orders_select = Select(
-    mux.output(),
+    mux0.output(),
     UniversalSelect(
-        mux.output().schema(),
+        mux0.output().schema(),
         [
             ('nation.id', {
                 'type': int,

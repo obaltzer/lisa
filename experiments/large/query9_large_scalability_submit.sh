@@ -2,8 +2,8 @@
 #
 #PBS -S /bin/bash
 #PBS -l nodes=1:ppn=8
-#PBS -l walltime=8:00:00
-#PBS -N query3_large_scalability
+#PBS -l walltime=48:00:00
+#PBS -N query9_large_scalability
 # 10 - 100%
 #PBS -t 1-10
 
@@ -21,9 +21,9 @@ SCRATCH_DIR=/state/partition1/obaltzer/phd/data/lisapy/large
 INDEX_TOOL=${LISA_HOME}/tools/create_index.py
 SAMPLE_TOOL="python ${DATA_HOME}/scripts/sample.py"
 
-TRACKS="1"
+TRACKS="4 5 6 7 8 9 10 11 12 13 14 15"
 #TRACKS="11"
-QUERY_SCRIPT=${LISA_HOME}/experiments/query3.py
+QUERY_SCRIPT=${LISA_HOME}/experiments/query9.py
 RUNNING=1
 
 # Determine the dataset that is to be used.
@@ -33,16 +33,21 @@ else
   SIZE=10
 fi
 
-INPUT_FILES="counties:100 geonames:${SIZE}"
+INPUT_FILES="counties:100 states:100 zip5:100 lulc:${SIZE}"
 
-N_CPU=1
+N_CPU=8
 
 mkdir -p ${RESULTS_DIR}
 if [ "${PBS_JOBID}" ] ; then
     filename=$(echo ${PBS_JOBID} | cut -d. -f1)
     RESULTS_FILE=${RESULTS_DIR}/${filename}_${SIZE}.csv
+    QUERY_RESULTS_FILE=${RESULTS_DIR}/${filename}_${SIZE}.results
+    STATS_FILE=${RESULTS_DIR}/${filename}_${SIZE}.stats
 else
-    RESULTS_FILE=${RESULTS_DIR}/results.csv
+    filename="manual"
+    RESULTS_FILE=${RESULTS_DIR}/${filename}.csv
+    QUERY_RESULTS_FILE=${RESULTS_DIR}/${filename}.results
+    STATS_FILE=${RESULTS_DIR}/${filename}.stats
 fi
 touch ${RESULTS_FILE}
 
@@ -97,7 +102,9 @@ function convert_input() {
         local size=${f#*:}
         local dest=${SCRATCH_DIR}/${f%:*}_${size}
         local destidx=${dest}.idx
-    
+   
+        rm -f ${dest}*
+
         if [ ! -f ${destidx} -o ${source} -nt ${destidx} ] ; then
             echo "Creating dataset ${dest}"
             bzcat ${source} | ${SAMPLE_TOOL} ${size} | python ${INDEX_TOOL} ${dest}
@@ -173,11 +180,13 @@ function run_timed() {
     done
     if [ ${RUNNING} -eq 1 ] ; then
         pushd ${SCRATCH_DIR}
-        cmd="python ${QUERY_SCRIPT} ${tracks} ${args}"
+        TMP_RESULTS_FILE=$(basename ${QUERY_RESULTS_FILE})
+        cmd="python ${QUERY_SCRIPT} ${tracks} ${args} ${TMP_RESULTS_FILE} ${STATS_FILE}"
         echo $cmd
         local output=$(timed ${cmd})
         local result="${N_CPU},${tracks},${SIZE},${output}"
         echo ${result} >> ${RESULTS_FILE}
+        cp -a ${TMP_RESULTS_FILE} ${QUERY_RESULTS_FILE}
         popd
     fi
 }
@@ -195,6 +204,8 @@ run 8
 
 # run experiments
 for t in ${TRACKS} ; do
+    QUERY_RESULTS_FILE=${RESULTS_DIR}/${filename}_${SIZE}_${t}.results
+    STATS_FILE=${RESULTS_DIR}/${filename}_${SIZE}_${t}.stats
     run_timed ${t}
 done
 

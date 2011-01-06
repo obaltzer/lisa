@@ -1,3 +1,6 @@
+# Same as Query 6 except the tracks are split before querying the orders
+# layer.
+
 import sys
 import logging
 import time

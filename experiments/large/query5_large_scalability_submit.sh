@@ -188,7 +188,7 @@ trap control_c SIGINT
 convert_input
 
 # Configure CPUs
-configure_cpus
+sudo /share/apps/admin/setcpu $N_CPU
 
 # warm up the cache
 run 8
@@ -199,4 +199,4 @@ for t in ${TRACKS} ; do
 done
 
 # restore CPUs
-restore_cpus
+sudo /share/apps/admin/setcpu

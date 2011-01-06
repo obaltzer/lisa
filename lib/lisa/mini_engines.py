@@ -38,7 +38,8 @@ class MiniEngine(object):
         pass
 
 class DataAccessor(MiniEngine):
-    def __init__(self, query_stream, data_source, access_method):
+    def __init__(self, query_stream, data_source, access_method, \
+                 name = None, stats_file = None):
         MiniEngine.__init__(self)
         self._query_stream = query_stream
         
@@ -48,6 +49,8 @@ class DataAccessor(MiniEngine):
         self._accessor = access_method(data_source)
         self._data_source = data_source
         self._access_method = access_method
+        self._name = name
+        self._stats_file = stats_file
 
         # make sure the accessor understands the query schema
         assert self._accessor.accepts(self._query_stream.schema())
@@ -87,6 +90,7 @@ class DataAccessor(MiniEngine):
         # for each query in the query stream's end-point
         i = 0
         closed = False
+        stats = 0
         while not closed:
             try:
                 # print 'DA: Waiting to receive'
@@ -99,6 +103,7 @@ class DataAccessor(MiniEngine):
                     # stream
                     for r in self._accessor.query(self._query_stream.schema(), q):
                         self._output_stream.send(r)
+                        stats += 1
                     # finalize the partition that belongs to one query with a
                     # stop word
                     self._output_stream.send(StopWord())
@@ -111,6 +116,11 @@ class DataAccessor(MiniEngine):
                 closed = True
         self._output_stream.close()
         print 'Closing DA stream'
+
+        if self._stats_file:
+            f = open(self._stats_file, 'a')
+            f.write('%s,%d\n' % (self._name or current_process().pid, stats))
+            f.close()
 
 class Generator(MiniEngine):
     def __init__(self, schema, generator, sort_order = None):
